@@ -250,11 +250,17 @@ export const api = {
   },
 
   gmail: {
-    messages: (params?: { q?: string; max_results?: number; page_token?: string }) => {
+    messages: (params?: {
+      q?: string;
+      max_results?: number;
+      page_token?: string;
+      include_spam_trash?: boolean;
+    }) => {
       const qs = new URLSearchParams();
       if (params?.q) qs.set('q', params.q);
       if (params?.max_results) qs.set('max_results', String(params.max_results));
       if (params?.page_token) qs.set('page_token', params.page_token);
+      if (params?.include_spam_trash) qs.set('include_spam_trash', 'true');
       return apiFetch<MessagesResponse>(`/api/gmail/messages?${qs}`);
     },
     message: (id: string) =>

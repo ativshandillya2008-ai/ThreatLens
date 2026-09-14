@@ -11,9 +11,11 @@ interface Props {
 export default function EmailRow({ email }: Props) {
   const navigate = useNavigate()
   const isUnread = email.labelIds.includes('UNREAD')
+  const isSpam = email.labelIds.includes('SPAM')
   const isQuarantined =
     email.threat.severity === 'HIGH' ||
-    email.labelIds.some(l => l.toLowerCase().includes('quarantine'))
+    email.labelIds.some(l => l.toLowerCase().includes('quarantine')) ||
+    isSpam
 
   const handleClick = () => {
     navigate(`/email/${email.id}`, { state: { threat: email.threat } })
@@ -84,7 +86,7 @@ export default function EmailRow({ email }: Props) {
             {isQuarantined && (
               <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.2 rounded bg-rose-50 text-rose-700 border border-rose-200 font-medium font-mono flex-shrink-0">
                 <Lock className="h-2.5 w-2.5 text-rose-600" />
-                QUARANTINED
+                {isSpam ? 'SPAM / QUARANTINED' : 'QUARANTINED'}
               </span>
             )}
           </div>

@@ -43,7 +43,11 @@ function App() {
         <Route path="/" element={user ? <Navigate to="/inbox" replace /> : <LoginPage />} />
         <Route
           path="/inbox"
-          element={user ? <InboxPage user={user} onLogout={() => setUser(null)} /> : <Navigate to="/" replace />}
+          element={user ? <InboxPage user={user} onLogout={() => setUser(null)} initialCategory="inbox" /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/spam"
+          element={user ? <InboxPage user={user} onLogout={() => setUser(null)} initialCategory="spam" /> : <Navigate to="/" replace />}
         />
         <Route
           path="/agent"

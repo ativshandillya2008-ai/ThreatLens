@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   RefreshCw,
   Search,
@@ -8,6 +9,7 @@ import {
   Shield,
   ChevronLeft,
   ChevronRight,
+  ShieldAlert,
 } from 'lucide-react'
 import { api, EmailSummary, UserInfo } from '../api/client'
 import EmailRow from '../components/EmailRow'
@@ -17,9 +19,18 @@ import ThreatStatsCards from '../components/ThreatStatsCards'
 interface Props {
   user: UserInfo
   onLogout: () => void
+  initialCategory?: 'inbox' | 'spam'
 }
 
-export default function InboxPage({ user, onLogout }: Props) {
+export default function InboxPage({ user, onLogout, initialCategory = 'inbox' }: Props) {
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  const pathCategory: 'inbox' | 'spam' = location.pathname.includes('/spam')
+    ? 'spam'
+    : (initialCategory || 'inbox')
+  const [activeCategory, setActiveCategory] = useState<'inbox' | 'spam'>(pathCategory)
+
   const [emails, setEmails] = useState<EmailSummary[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [discoveredPages, setDiscoveredPages] = useState<number[]>([1])
@@ -32,6 +43,12 @@ export default function InboxPage({ user, onLogout }: Props) {
   const [isScanning, setIsScanning] = useState(false)
   const [unscoredCount, setUnscoredCount] = useState(0)
   const [statsTrigger, setStatsTrigger] = useState(0)
+
+  // Sync category whenever location pathname updates (e.g., clicking navbar link)
+  useEffect(() => {
+    const nextCat = location.pathname.includes('/spam') ? 'spam' : 'inbox'
+    setActiveCategory(nextCat)
+  }, [location.pathname])
 
   // Token cache: index 0 is page 1 (null token), index 1 is page 2, etc.
   const pageTokensRef = useRef<(string | null)[]>([null])
@@ -46,10 +63,34 @@ export default function InboxPage({ user, onLogout }: Props) {
 
       try {
         const token = pageTokensRef.current[targetPage - 1] ?? undefined
+
+        // Build effective Gmail search query depending on active category
+        let effectiveQuery = submittedQuery.trim()
+        if (activeCategory === 'spam') {
+          if (!effectiveQuery) {
+            effectiveQuery = 'in:spam'
+          } else if (
+            !effectiveQuery.toLowerCase().includes('in:spam') &&
+            !effectiveQuery.toLowerCase().includes('is:spam')
+          ) {
+            effectiveQuery = `in:spam ${effectiveQuery}`
+          }
+        } else {
+          if (!effectiveQuery) {
+            effectiveQuery = 'in:inbox'
+          } else if (
+            !effectiveQuery.toLowerCase().includes('in:inbox') &&
+            !effectiveQuery.toLowerCase().includes('is:inbox')
+          ) {
+            effectiveQuery = `in:inbox ${effectiveQuery}`
+          }
+        }
+
         const data = await api.gmail.messages({
-          q: submittedQuery || undefined,
+          q: effectiveQuery,
           max_results: 25,
           page_token: token || undefined,
+          include_spam_trash: activeCategory === 'spam',
         })
 
         const msgs = data.messages || []
@@ -88,10 +129,10 @@ export default function InboxPage({ user, onLogout }: Props) {
         }
       }
     },
-    [submittedQuery]
+    [submittedQuery, activeCategory]
   )
 
-  // Fetch initial page on mount and whenever search query changes
+  // Fetch initial page on mount and whenever search query or category changes
   useEffect(() => {
     pageTokensRef.current = [null]
     currentPageRef.current = 1
@@ -99,7 +140,7 @@ export default function InboxPage({ user, onLogout }: Props) {
     setDiscoveredPages([1])
     setNextPageToken(null)
     fetchPage(1)
-  }, [fetchPage, submittedQuery])
+  }, [fetchPage, submittedQuery, activeCategory])
 
   // Periodic polling: refreshes the CURRENT page without resetting to page 1
   useEffect(() => {
@@ -109,6 +150,12 @@ export default function InboxPage({ user, onLogout }: Props) {
     }, intervalMs)
     return () => clearInterval(interval)
   }, [fetchPage, isScanning])
+
+  const handleCategoryChange = (category: 'inbox' | 'spam') => {
+    if (category === activeCategory) return
+    setActiveCategory(category)
+    navigate(category === 'spam' ? '/spam' : '/inbox')
+  }
 
   const handlePageChange = (newPage: number) => {
     if (newPage < 1 || newPage === currentPage || loading) return
@@ -161,6 +208,85 @@ export default function InboxPage({ user, onLogout }: Props) {
           refreshTrigger={statsTrigger}
         />
 
+        {/* Category Switcher Tabs */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
+          <div className="inline-flex p-1 bg-white border border-slate-200 rounded-2xl shadow-xs">
+            <button
+              onClick={() => handleCategoryChange('inbox')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeCategory === 'inbox'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <InboxIcon className="h-4 w-4" />
+              <span>Primary Inbox</span>
+            </button>
+
+            <button
+              onClick={() => handleCategoryChange('spam')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeCategory === 'spam'
+                  ? 'bg-rose-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <ShieldAlert className="h-4 w-4" />
+              <span>Spam & Quarantine Vault</span>
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider ${
+                  activeCategory === 'spam'
+                    ? 'bg-rose-700 text-rose-100'
+                    : 'bg-rose-100 text-rose-700'
+                }`}
+              >
+                Spam Folder
+              </span>
+            </button>
+          </div>
+
+          <div className="text-xs text-slate-500 font-mono hidden sm:flex items-center gap-2">
+            <span
+              className={`h-2 w-2 rounded-full ${
+                activeCategory === 'spam' ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'
+              }`}
+            />
+            <span>
+              Active Category:{' '}
+              <strong className="text-slate-700">
+                {activeCategory === 'spam' ? 'Gmail SPAM (Quarantined Vault)' : 'Primary Inbox'}
+              </strong>
+            </span>
+          </div>
+        </div>
+
+        {/* Spam Category Info Banner */}
+        {activeCategory === 'spam' && (
+          <div className="mb-4 p-4 bg-gradient-to-r from-rose-50 via-amber-50/40 to-rose-50 border border-rose-200/80 rounded-2xl flex items-start gap-3.5 shadow-sm">
+            <div className="h-9 w-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <ShieldAlert className="h-5 w-5 text-rose-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-xs font-bold text-rose-900 uppercase tracking-wide">
+                  Gmail Spam & Threat Quarantine Vault
+                </h2>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-600 text-white font-mono font-semibold">
+                  in:spam
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 font-mono font-medium border border-rose-200">
+                  Full Forensics Active
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                Displaying messages isolated in your Gmail Spam folder. Emails flagged as High or Medium risk by
+                ThreatLens are automatically moved here with forensic telemetry, hop-by-hop geolocations, and
+                SPF/DKIM/DMARC verdicts preserved.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Action / Search Bar */}
         <div className="bg-white border border-slate-200 rounded-2xl p-4 mb-5 shadow-sm space-y-3">
           <div className="flex flex-col sm:flex-row items-center gap-3">
@@ -171,7 +297,11 @@ export default function InboxPage({ user, onLogout }: Props) {
                 type="text"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                placeholder="Search subject, sender, or content (e.g. from:support, label:quarantine)..."
+                placeholder={
+                  activeCategory === 'spam'
+                    ? 'Search spam folder (e.g. from:suspicious, subject:alert, phishing)...'
+                    : 'Search primary inbox (e.g. from:support, subject:security)...'
+                }
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-10 pr-9 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white transition-all font-sans"
               />
               {query && (
@@ -198,15 +328,25 @@ export default function InboxPage({ user, onLogout }: Props) {
                 <option value="LOW">Verified Safe</option>
               </select>
 
-              {/* Scan Inbox Button */}
+              {/* Scan Button */}
               <button
                 onClick={handleTriggerScan}
                 disabled={isScanning || loading}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white shadow-sm transition-all disabled:opacity-60"
-                title="Scan inbox messages with AI Threat Engine"
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white shadow-sm transition-all disabled:opacity-60 ${
+                  activeCategory === 'spam'
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+                title="Scan messages with AI Threat Engine"
               >
                 <Shield className={`h-3.5 w-3.5 ${isScanning ? 'animate-pulse' : ''}`} />
-                <span>{isScanning ? 'Scanning...' : 'Scan Inbox'}</span>
+                <span>
+                  {isScanning
+                    ? 'Scanning...'
+                    : activeCategory === 'spam'
+                    ? 'Scan Spam Vault'
+                    : 'Scan Inbox'}
+                </span>
               </button>
 
               {/* Refresh Button */}
@@ -216,7 +356,9 @@ export default function InboxPage({ user, onLogout }: Props) {
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 border border-slate-200 transition-all disabled:opacity-50"
                 title="Refresh current page"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`} />
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-blue-600' : ''}`}
+                />
                 <span className="hidden md:inline">Refresh</span>
               </button>
             </div>
@@ -226,7 +368,7 @@ export default function InboxPage({ user, onLogout }: Props) {
           <div className="flex items-center gap-2 pt-1 border-t border-slate-100 text-xs flex-wrap">
             <span className="text-slate-500 text-[11px] font-medium mr-1">Filter:</span>
             {[
-              { id: '', label: 'All Messages' },
+              { id: '', label: activeCategory === 'spam' ? 'All Spam Messages' : 'All Messages' },
               { id: 'HIGH', label: 'High Threats', color: 'text-rose-700 bg-rose-50 border-rose-200' },
               { id: 'MEDIUM', label: 'Suspicious', color: 'text-amber-700 bg-amber-50 border-amber-200' },
               { id: 'LOW', label: 'Safe', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
@@ -238,7 +380,9 @@ export default function InboxPage({ user, onLogout }: Props) {
                   onClick={() => setSeverityFilter(pill.id)}
                   className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium border transition-all ${
                     active
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      ? activeCategory === 'spam'
+                        ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                        : 'bg-blue-600 text-white border-blue-600 shadow-sm'
                       : pill.color || 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
                   }`}
                 >
@@ -280,7 +424,10 @@ export default function InboxPage({ user, onLogout }: Props) {
         {error && (
           <div className="mb-4 p-4 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs flex items-center justify-between">
             <span>{error}</span>
-            <button onClick={() => fetchPage(currentPageRef.current)} className="underline text-rose-700 font-semibold">
+            <button
+              onClick={() => fetchPage(currentPageRef.current)}
+              className="underline text-rose-700 font-semibold"
+            >
               Retry
             </button>
           </div>
@@ -290,10 +437,15 @@ export default function InboxPage({ user, onLogout }: Props) {
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
           <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-              <Mail className="h-4 w-4 text-blue-600" />
-              <span>Inbox Feed</span>
+              {activeCategory === 'spam' ? (
+                <ShieldAlert className="h-4 w-4 text-rose-600" />
+              ) : (
+                <Mail className="h-4 w-4 text-blue-600" />
+              )}
+              <span>{activeCategory === 'spam' ? 'Spam & Quarantine Feed' : 'Primary Inbox Feed'}</span>
               <span className="text-slate-500 font-normal">
-                (Page {currentPage} — {filteredEmails.length} {filteredEmails.length === 1 ? 'message' : 'messages'} shown)
+                (Page {currentPage} — {filteredEmails.length}{' '}
+                {filteredEmails.length === 1 ? 'message' : 'messages'} shown)
               </span>
               {loading && emails.length > 0 && (
                 <RefreshCw className="h-3 w-3 animate-spin text-blue-600 ml-1" />
@@ -317,15 +469,27 @@ export default function InboxPage({ user, onLogout }: Props) {
           {loading && emails.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">
               <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent" />
-              <span className="text-xs text-slate-500 font-medium">Scanning mailbox and analyzing email security...</span>
+              <span className="text-xs text-slate-500 font-medium">
+                Scanning mailbox and analyzing email security...
+              </span>
             </div>
           ) : filteredEmails.length === 0 ? (
             <div className="text-center py-20 px-4">
-              <InboxIcon className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-              <p className="text-sm font-semibold text-slate-800">No emails match your selection</p>
-              <p className="text-xs text-slate-500 mt-1">
+              {activeCategory === 'spam' ? (
+                <ShieldAlert className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+              ) : (
+                <InboxIcon className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+              )}
+              <p className="text-sm font-semibold text-slate-800">
+                {activeCategory === 'spam'
+                  ? 'No spam or quarantined emails found'
+                  : 'No emails match your selection'}
+              </p>
+              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
                 {severityFilter || submittedQuery
                   ? 'Try clearing your search query or switching your severity filter.'
+                  : activeCategory === 'spam'
+                  ? 'Your Gmail spam folder is empty. Any suspicious or high-risk emails quarantined by ThreatLens will appear here.'
                   : 'Your inbox is clear or no emails have been imported yet.'}
               </p>
               {(severityFilter || submittedQuery) && (
@@ -399,7 +563,9 @@ export default function InboxPage({ user, onLogout }: Props) {
                             disabled={loading || pageNum === currentPage}
                             className={`min-w-[32px] h-7 px-2 rounded-xl text-xs font-semibold transition-all ${
                               pageNum === currentPage
-                                ? 'bg-blue-600 text-white shadow-sm'
+                                ? activeCategory === 'spam'
+                                  ? 'bg-rose-600 text-white shadow-sm'
+                                  : 'bg-blue-600 text-white shadow-sm'
                                 : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-blue-700'
                             }`}
                           >

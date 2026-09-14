@@ -69,6 +69,7 @@ async def list_messages(
     max_results: int = Query(default=25, le=100),
     page_token: Optional[str] = Query(default=None),
     auto_scan: bool = Query(default=True, description="Auto-scan unscored messages in background"),
+    include_spam_trash: bool = Query(default=False, description="Include messages from SPAM and TRASH"),
 ) -> JSONResponse:
     """List Gmail messages, enriched with threat scores from the DB.
     
@@ -79,7 +80,10 @@ async def list_messages(
 
     async with GmailClient(user_email) as client:
         data = await client.list_messages(
-            query=q, max_results=max_results, page_token=page_token
+            query=q,
+            max_results=max_results,
+            page_token=page_token,
+            include_spam_trash=include_spam_trash,
         )
 
     messages = data.get("messages", [])

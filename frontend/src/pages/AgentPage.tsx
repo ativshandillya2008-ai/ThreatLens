@@ -28,7 +28,7 @@ export default function AgentPage({ user }: Props) {
       content:
         `Hello ${user.name || user.email.split('@')[0]}! I am your **ThreatLens Threat Agent**.\n\n` +
         `I am connected directly to your Gmail account and the ThreatLens Forensic Threat Engine. ` +
-        `Like Claude, I can search your mailbox, summarize incoming messages, draft replies, and ` +
+        `I can search your mailbox, summarize incoming messages, draft replies, and ` +
         `specifically **detect whether any message is a threat** by evaluating SPF/DKIM/DMARC authentication, ` +
         `IP geolocation routes, and Gemini content heuristics.\n\n` +
         `How can I assist you with your inbox security today?`,
@@ -126,9 +126,6 @@ export default function AgentPage({ user }: Props) {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-sm font-bold text-slate-900">ThreatLens Threat Agent</h1>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">
-                  Claude-like Connector
-                </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Connected to Gmail ({user.email}) — AI Threat Detection & Analysis

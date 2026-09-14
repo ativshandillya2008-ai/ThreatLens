@@ -96,11 +96,16 @@ class GmailClient:
         query: str = "",
         max_results: int = 50,
         page_token: Optional[str] = None,
+        include_spam_trash: bool = False,
     ) -> dict[str, Any]:
         """List messages matching a query."""
         params: dict[str, Any] = {"maxResults": int(max_results)}
         if query:
             params["q"] = query
+            if "in:spam" in query.lower() or "is:spam" in query.lower():
+                include_spam_trash = True
+        if include_spam_trash:
+            params["includeSpamTrash"] = "true"
         if page_token:
             params["pageToken"] = page_token
         return await self._request("GET", "/messages", params=params)

@@ -26,7 +26,7 @@ export default function LoginPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">ThreatLens Email Threat Intelligence</h1>
             <p className="text-slate-500 text-sm mt-1 max-w-md mx-auto">
-              Automated Gmail threat detection, forensic geolocation, and Claude-style agentic AI assistant.
+              Automated Gmail threat detection, forensic geolocation, and agentic AI assistant.
             </p>
           </div>
         </div>
@@ -47,7 +47,7 @@ export default function LoginPage() {
           <div className="space-y-1">
             <h2 className="text-sm font-semibold text-slate-900">Connect Your Mailbox</h2>
             <p className="text-xs text-slate-500">
-              Authorize ThreatLens to inspect incoming messages, detect security threats, and enable Claude-like agent capabilities.
+              Authorize ThreatLens to inspect incoming messages, detect security threats, and enable autonomous agent capabilities.
             </p>
           </div>
 

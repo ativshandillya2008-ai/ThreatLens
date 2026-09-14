@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Bot,
   Globe,
+  ShieldAlert,
 } from 'lucide-react'
 import { api, UserInfo, WatchSetupResponse } from '../api/client'
 
@@ -43,7 +44,8 @@ export default function Navbar({ user, onLogout }: Props) {
 
   const navItems = [
     { to: '/inbox', label: 'Inbox', icon: Inbox },
-    { to: '/agent', label: 'AI Agent', icon: Bot, badge: 'Claude-like' },
+    { to: '/spam', label: 'Spam & Quarantine', icon: ShieldAlert, badge: 'Spam' },
+    { to: '/agent', label: 'AI Agent', icon: Bot },
     { to: '/audit', label: 'Forensic Audit', icon: FileText },
     { to: '/map', label: 'Threat Map', icon: Globe, badge: 'Live Radar' },
   ]
