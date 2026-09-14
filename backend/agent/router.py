@@ -12,7 +12,7 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, desc, select
 
 from ..config import get_settings
 from ..database import get_session_factory
@@ -22,6 +22,7 @@ from ..pipeline.runner import run_pipeline
 from ..pipeline.safe_browsing import _extract_urls
 from ..threats.models import AuditOverride, ThreatScore
 from ..threats.quarantine import quarantine_message, release_from_quarantine
+from .models import AgentChatSession, AgentChatMessage
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -76,10 +77,168 @@ Style Guidelines:
 class ChatMessage(BaseModel):
     role: str  # "user" | "assistant"
     content: str
+    tools_called: Optional[List[dict[str, Any]]] = None
+    created_at: Optional[str] = None
 
 
 class AgentChatRequest(BaseModel):
-    messages: List[ChatMessage]
+    messages: Optional[List[ChatMessage]] = None
+    prompt: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+class SessionCreateRequest(BaseModel):
+    title: Optional[str] = None
+
+
+@router.get("/sessions")
+async def list_sessions(request: Request) -> JSONResponse:
+    """List all saved chat sessions for the authenticated user."""
+    user_email = request.session.get("user_email")
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(AgentChatSession)
+            .where(AgentChatSession.user_email == user_email)
+            .order_by(desc(AgentChatSession.updated_at))
+        )
+        sessions = result.scalars().all()
+
+        session_list = []
+        for s in sessions:
+            msgs = s.messages
+            last_msg = msgs[-1].content if msgs else None
+            if last_msg and len(last_msg) > 90:
+                last_msg = last_msg[:87] + "..."
+
+            session_list.append({
+                "id": s.id,
+                "title": s.title,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                "message_count": len(msgs),
+                "last_message": last_msg,
+            })
+
+        return JSONResponse({"sessions": session_list})
+
+
+@router.post("/sessions")
+async def create_session(
+    request: Request, body: Optional[SessionCreateRequest] = None
+) -> JSONResponse:
+    """Create a new chat session."""
+    user_email = request.session.get("user_email")
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    title = (body.title.strip() if body and body.title else "") or "New Conversation"
+    new_session = AgentChatSession(
+        user_email=user_email,
+        title=title,
+    )
+    factory = get_session_factory()
+    async with factory() as db:
+        db.add(new_session)
+        await db.commit()
+        await db.refresh(new_session)
+
+        return JSONResponse({
+            "id": new_session.id,
+            "title": new_session.title,
+            "created_at": new_session.created_at.isoformat(),
+            "updated_at": new_session.updated_at.isoformat(),
+            "message_count": 0,
+            "messages": [],
+        })
+
+
+@router.get("/sessions/{session_id}")
+async def get_session(request: Request, session_id: str) -> JSONResponse:
+    """Retrieve a single session and its full message history."""
+    user_email = request.session.get("user_email")
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(AgentChatSession).where(
+                AgentChatSession.id == session_id,
+                AgentChatSession.user_email == user_email,
+            )
+        )
+        s = result.scalar_one_or_none()
+        if not s:
+            raise HTTPException(status_code=404, detail="Chat session not found")
+
+        formatted_messages = []
+        for m in s.messages:
+            tools = None
+            if m.tools_called:
+                try:
+                    tools = json.loads(m.tools_called)
+                except Exception:
+                    tools = []
+            formatted_messages.append({
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "tools_called": tools,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            })
+
+        return JSONResponse({
+            "id": s.id,
+            "title": s.title,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+            "message_count": len(formatted_messages),
+            "messages": formatted_messages,
+        })
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(request: Request, session_id: str) -> JSONResponse:
+    """Delete a specific chat session and all associated messages."""
+    user_email = request.session.get("user_email")
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(AgentChatSession).where(
+                AgentChatSession.id == session_id,
+                AgentChatSession.user_email == user_email,
+            )
+        )
+        s = result.scalar_one_or_none()
+        if not s:
+            raise HTTPException(status_code=404, detail="Chat session not found")
+
+        await db.delete(s)
+        await db.commit()
+        return JSONResponse({"status": "deleted", "id": session_id})
+
+
+@router.delete("/sessions")
+async def clear_all_sessions(request: Request) -> JSONResponse:
+    """Clear all chat sessions for the authenticated user."""
+    user_email = request.session.get("user_email")
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    factory = get_session_factory()
+    async with factory() as db:
+        await db.execute(
+            delete(AgentChatSession).where(AgentChatSession.user_email == user_email)
+        )
+        await db.commit()
+        return JSONResponse({"status": "cleared"})
 
 
 @router.post("/chat")
@@ -407,13 +566,66 @@ async def agent_chat(request: Request, body: AgentChatRequest) -> JSONResponse:
             if m not in unique_models:
                 unique_models.append(m)
 
-        # Pre-populate history without extra API overhead
-        formatted_history = []
-        for msg in body.messages[:-1]:
-            role = "user" if msg.role == "user" else "model"
-            formatted_history.append({"role": role, "parts": [msg.content]})
+        # 1. Determine user prompt text
+        latest_prompt = ""
+        if body.prompt:
+            latest_prompt = body.prompt.strip()
+        elif body.messages:
+            latest_prompt = body.messages[-1].content.strip()
+        if not latest_prompt:
+            latest_prompt = "Hello"
 
-        latest_prompt = body.messages[-1].content if body.messages else "Hello"
+        active_session_id: Optional[str] = body.session_id
+        formatted_history = []
+
+        # 2. Retrieve or create persistent chat session
+        factory = get_session_factory()
+        async with factory() as db:
+            session_obj = None
+            if active_session_id:
+                res = await db.execute(
+                    select(AgentChatSession).where(
+                        AgentChatSession.id == active_session_id,
+                        AgentChatSession.user_email == user_email,
+                    )
+                )
+                session_obj = res.scalar_one_or_none()
+
+            if not session_obj:
+                title_text = latest_prompt.replace("\n", " ").strip()
+                if len(title_text) > 48:
+                    title_text = title_text[:45] + "..."
+                if not title_text:
+                    title_text = "New Conversation"
+
+                session_obj = AgentChatSession(
+                    user_email=user_email,
+                    title=title_text,
+                )
+                db.add(session_obj)
+                await db.commit()
+                await db.refresh(session_obj)
+                active_session_id = session_obj.id
+
+            # Build history from session's existing messages
+            if session_obj.messages:
+                for m in session_obj.messages:
+                    role = "user" if m.role == "user" else "model"
+                    formatted_history.append({"role": role, "parts": [m.content]})
+            elif body.messages and len(body.messages) > 1:
+                for msg in body.messages[:-1]:
+                    role = "user" if msg.role == "user" else "model"
+                    formatted_history.append({"role": role, "parts": [msg.content]})
+
+            # Persist user prompt to DB
+            user_msg = AgentChatMessage(
+                session_id=session_obj.id,
+                role="user",
+                content=latest_prompt,
+            )
+            db.add(user_msg)
+            session_obj.updated_at = datetime.now(timezone.utc)
+            await db.commit()
 
         agent_text = ""
         last_exc = None
@@ -451,9 +663,35 @@ async def agent_chat(request: Request, body: AgentChatRequest) -> JSONResponse:
                 "Please try again in a few moments, or ask your question in another way."
             )
 
+        # Persist assistant response to DB
+        async with factory() as db:
+            res = await db.execute(
+                select(AgentChatSession).where(
+                    AgentChatSession.id == active_session_id,
+                    AgentChatSession.user_email == user_email,
+                )
+            )
+            cur_session = res.scalar_one_or_none()
+            if cur_session:
+                asst_msg = AgentChatMessage(
+                    session_id=cur_session.id,
+                    role="assistant",
+                    content=agent_text,
+                    tools_called=json.dumps(tools_called) if tools_called else None,
+                )
+                db.add(asst_msg)
+                cur_session.updated_at = datetime.now(timezone.utc)
+                if cur_session.title in ("New Conversation", "New Chat") and latest_prompt:
+                    title_cand = latest_prompt.replace("\n", " ").strip()
+                    if len(title_cand) > 48:
+                        title_cand = title_cand[:45] + "..."
+                    cur_session.title = title_cand
+                await db.commit()
+
         return JSONResponse({
             "response": agent_text,
             "tools_called": tools_called,
+            "session_id": active_session_id,
             "authenticated": True,
         })
 
@@ -462,5 +700,6 @@ async def agent_chat(request: Request, body: AgentChatRequest) -> JSONResponse:
         return JSONResponse({
             "response": f"An error occurred while processing your request: {str(exc)}",
             "tools_called": tools_called,
+            "session_id": active_session_id if 'active_session_id' in locals() else None,
             "authenticated": True,
         })

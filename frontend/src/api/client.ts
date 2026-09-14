@@ -135,16 +135,37 @@ export interface UserInfo {
 }
 
 export interface AgentMessage {
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
   tools_called?: Array<{ tool: string; [key: string]: unknown }>;
   timestamp?: string;
+  created_at?: string;
 }
 
 export interface AgentChatResponse {
   response: string;
   tools_called: Array<{ tool: string; [key: string]: unknown }>;
   authenticated: boolean;
+  session_id?: string;
+}
+
+export interface AgentSessionSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  last_message?: string | null;
+}
+
+export interface AgentSessionDetail {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  messages: AgentMessage[];
 }
 
 export interface GeoLookupResponse {
@@ -311,10 +332,33 @@ export const api = {
   },
 
   agent: {
-    chat: (messages: AgentMessage[]) =>
-      apiFetch<AgentChatResponse>('/api/agent/chat', {
+    chat: (
+      payload:
+        | { messages?: AgentMessage[]; prompt?: string; session_id?: string }
+        | AgentMessage[]
+    ) => {
+      const body = Array.isArray(payload) ? { messages: payload } : payload;
+      return apiFetch<AgentChatResponse>('/api/agent/chat', {
         method: 'POST',
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify(body),
+      });
+    },
+    listSessions: () =>
+      apiFetch<{ sessions: AgentSessionSummary[] }>('/api/agent/sessions'),
+    getSession: (sessionId: string) =>
+      apiFetch<AgentSessionDetail>(`/api/agent/sessions/${sessionId}`),
+    createSession: (title?: string) =>
+      apiFetch<AgentSessionDetail>('/api/agent/sessions', {
+        method: 'POST',
+        body: JSON.stringify({ title }),
+      }),
+    deleteSession: (sessionId: string) =>
+      apiFetch<{ status: string; id: string }>(`/api/agent/sessions/${sessionId}`, {
+        method: 'DELETE',
+      }),
+    clearAllSessions: () =>
+      apiFetch<{ status: string }>('/api/agent/sessions', {
+        method: 'DELETE',
       }),
   },
 

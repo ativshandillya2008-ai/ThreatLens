@@ -62,6 +62,7 @@ async def create_tables() -> None:
     # Import models to register them with Base.metadata
     from .threats.models import ThreatScore, AuditOverride  # noqa: F401
     from .auth.token_store import StoredToken  # noqa: F401
+    from .agent.models import AgentChatSession, AgentChatMessage  # noqa: F401
 
     async with get_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
