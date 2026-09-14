@@ -52,24 +52,24 @@ async def ensure_quarantine_label(user_email: str) -> str:
 
 
 async def quarantine_message(user_email: str, message_id: str) -> None:
-    """Apply the Quarantine label and remove from INBOX."""
+    """Apply the Quarantine & SPAM labels and remove from INBOX."""
     label_id = await ensure_quarantine_label(user_email)
     async with GmailClient(user_email) as client:
         await client.modify_message(
             message_id=message_id,
-            add_label_ids=[label_id],
+            add_label_ids=[label_id, "SPAM"],
             remove_label_ids=["INBOX"],
         )
-    logger.info("Quarantined message %s for %s", message_id, user_email)
+    logger.info("Quarantined message %s to SPAM for %s", message_id, user_email)
 
 
 async def release_from_quarantine(user_email: str, message_id: str) -> None:
-    """Remove the Quarantine label and restore to INBOX."""
+    """Remove the Quarantine & SPAM labels and restore to INBOX."""
     label_id = await ensure_quarantine_label(user_email)
     async with GmailClient(user_email) as client:
         await client.modify_message(
             message_id=message_id,
-            remove_label_ids=[label_id],
+            remove_label_ids=[label_id, "SPAM"],
             add_label_ids=["INBOX"],
         )
     logger.info("Released message %s from quarantine for %s", message_id, user_email)
