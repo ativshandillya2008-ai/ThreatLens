@@ -12,12 +12,14 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  UserCheck
+  UserCheck,
+  Printer,
 } from 'lucide-react'
 import { api, ThreatDetail, UserInfo } from '../api/client'
 import ThreatBadge from '../components/ThreatBadge'
 import Navbar from '../components/Navbar'
 import ThreatStatsCards from '../components/ThreatStatsCards'
+import ForensicReportModal from '../components/ForensicReportModal'
 
 interface Props {
   user: UserInfo
@@ -35,6 +37,9 @@ export default function AuditLogPage({ user }: Props) {
   const [pageSize, setPageSize] = useState(20)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
+
+  // Forensic Report modal state
+  const [reportThreat, setReportThreat] = useState<ThreatDetail | null>(null)
 
   // Header inspection modal state
   const [inspectModalThreat, setInspectModalThreat] = useState<ThreatDetail | null>(null)
@@ -293,14 +298,24 @@ export default function AuditLogPage({ user }: Props) {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => navigate(`/email/${t.message_id}`)}
-                          className="text-xs font-semibold text-slate-900 hover:text-blue-700 truncate text-left transition-colors"
+                          onClick={() => setReportThreat(t)}
+                          className="text-xs font-semibold text-slate-900 hover:text-blue-700 truncate text-left transition-colors cursor-pointer"
+                          title="View Forensic Audit Report without opening email"
                         >
                           {t.subject || '(no subject)'}
                         </button>
                         {t.quarantined && (
                           <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-50 text-rose-700 border border-rose-200 font-mono font-medium">
                             QUARANTINE
+                          </span>
+                        )}
+                        {t.detected_language && !['English', 'en', 'Unknown'].includes(t.detected_language) && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-medium flex items-center gap-1"
+                            title={`Detected Language: ${t.detected_language}`}
+                          >
+                            <span>🇮🇳</span>
+                            <span>{t.detected_language.replace(/\s*\(.*?\)/, '')}</span>
                           </span>
                         )}
                       </div>
@@ -346,8 +361,17 @@ export default function AuditLogPage({ user }: Props) {
                   {/* Right: Actions */}
                   <div className="flex items-center gap-2 flex-shrink-0 self-end md:self-auto">
                     <button
+                      onClick={() => setReportThreat(t)}
+                      className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                      title="View & Print Forensic Report without opening email"
+                    >
+                      <Printer className="h-3.5 w-3.5 text-blue-600" />
+                      <span>Forensic Report</span>
+                    </button>
+
+                    <button
                       onClick={() => handleInspectHeaders(t)}
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-slate-100 transition-colors border border-slate-200"
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-slate-100 transition-colors border border-slate-200 cursor-pointer"
                       title="Inspect Decrypted RFC Headers"
                     >
                       <Code2 className="h-4 w-4" />
@@ -358,7 +382,7 @@ export default function AuditLogPage({ user }: Props) {
                         setOverrideTarget(t)
                         setOverrideAction(t.quarantined ? 'release' : 'confirm')
                       }}
-                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 transition-colors shadow-sm"
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 transition-colors shadow-sm cursor-pointer"
                       title="Submit Audit Override"
                     >
                       Override
@@ -366,8 +390,8 @@ export default function AuditLogPage({ user }: Props) {
 
                     <button
                       onClick={() => navigate(`/email/${t.message_id}`)}
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-slate-100 transition-colors border border-slate-200"
-                      title="Open Full Analysis"
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-slate-100 transition-colors border border-slate-200 cursor-pointer"
+                      title="Open Full Analysis & Mail Viewer"
                     >
                       <ArrowRight className="h-4 w-4" />
                     </button>
@@ -558,6 +582,14 @@ export default function AuditLogPage({ user }: Props) {
             )}
           </div>
         </div>
+      )}
+
+      {/* Forensic Threat Assessment & Audit Dossier Modal */}
+      {reportThreat && (
+        <ForensicReportModal
+          threat={reportThreat}
+          onClose={() => setReportThreat(null)}
+        />
       )}
     </div>
   )

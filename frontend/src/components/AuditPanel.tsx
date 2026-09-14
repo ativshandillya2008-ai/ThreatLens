@@ -17,10 +17,12 @@ import {
   Unlock,
   Crosshair,
   MapPin,
+  Printer,
 } from 'lucide-react'
 import { ThreatDetail, api } from '../api/client'
 import ThreatBadge from './ThreatBadge'
 import GeoLocationMap, { MapMarkerItem } from './GeoLocationMap'
+import ForensicReportModal from './ForensicReportModal'
 
 interface Props {
   threat: ThreatDetail
@@ -80,6 +82,7 @@ function ResultPill({ value }: { value: string }) {
 
 export default function AuditPanel({ threat, onThreatUpdated }: Props) {
   const navigate = useNavigate()
+  const [showReport, setShowReport] = useState(false)
   const [showRawHeaders, setShowRawHeaders] = useState(false)
   const [rawHeaders, setRawHeaders] = useState<string>('')
   const [loadingHeaders, setLoadingHeaders] = useState(false)
@@ -168,6 +171,15 @@ export default function AuditPanel({ threat, onThreatUpdated }: Props) {
             </div>
           </div>
         </div>
+
+        <button
+          onClick={() => setShowReport(true)}
+          className="mt-3 w-full py-2 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+          title="View & Print Official Forensic Threat Assessment Report Dossier"
+        >
+          <Printer className="h-3.5 w-3.5 text-blue-600" />
+          <span>View & Print Forensic Audit Report</span>
+        </button>
       </div>
 
       {/* 1. Email Authentication */}
@@ -467,13 +479,21 @@ export default function AuditPanel({ threat, onThreatUpdated }: Props) {
             <button
               onClick={handleApplyOverride}
               disabled={overrideSubmitting}
-              className="w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white transition-colors"
+              className="w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white transition-colors cursor-pointer"
             >
               {overrideSubmitting ? 'Saving...' : 'Apply Override'}
             </button>
           </div>
         </div>
       </Section>
+
+      {/* Forensic Threat Assessment & Audit Dossier Modal */}
+      {showReport && (
+        <ForensicReportModal
+          threat={threat}
+          onClose={() => setShowReport(false)}
+        />
+      )}
     </div>
   )
 }

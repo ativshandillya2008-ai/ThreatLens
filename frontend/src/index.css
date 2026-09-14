@@ -62,4 +62,41 @@
   animation: tactical-pulse-ring 2.2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
 }
 
+/* Print Media Styles for Official Forensic Threat Reports */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #forensic-printable-report,
+  #forensic-printable-report * {
+    visibility: visible;
+  }
+  #forensic-printable-report {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  @page {
+    margin: 1.2cm;
+    size: A4 portrait;
+  }
+}
+
 
