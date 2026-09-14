@@ -316,6 +316,34 @@ export default function AuditPanel({ threat, onThreatUpdated }: Props) {
             </div>
           </div>
 
+          {threat.detected_language && (
+            <div className="p-2.5 bg-indigo-50/60 rounded-xl border border-indigo-200/80 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-base">
+                  {threat.detected_language !== 'English' && threat.detected_language !== 'en' ? '🇮🇳' : '🌐'}
+                </span>
+                <div>
+                  <div className="text-[10px] text-indigo-700 font-bold uppercase tracking-wider">
+                    Language Intelligence
+                  </div>
+                  <div className="text-slate-900 font-semibold text-xs mt-0.5 flex items-center gap-1.5">
+                    <span>{threat.detected_language}</span>
+                    {threat.language_code && (
+                      <span className="text-[10px] font-mono text-indigo-700 bg-indigo-100 px-1.5 py-0.2 rounded font-semibold uppercase">
+                        {threat.language_code}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {threat.detected_language !== 'English' && threat.detected_language !== 'en' && (
+                <span className="text-[10px] font-semibold text-indigo-800 bg-white border border-indigo-200 px-2 py-0.5 rounded-md shadow-xs">
+                  Native Indic Scan
+                </span>
+              )}
+            </div>
+          )}
+
           {threat.llm_reasoning && threat.llm_reasoning.length > 0 && (
             <div>
               <div className="text-[10px] font-bold text-slate-600 uppercase mb-1.5">

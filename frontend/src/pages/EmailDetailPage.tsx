@@ -195,13 +195,24 @@ export default function EmailDetailPage({ user }: Props) {
                 </div>
               </div>
 
-              {/* Quick Origin Location Bar */}
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-500 font-medium">Origin Hop:</span>
-                  <span className="font-semibold text-slate-800">
-                    {threat?.geo_country ? `${threat.geo_country}${threat.geo_hops?.[0]?.city ? ` (${threat.geo_hops[0].city})` : ''}` : 'Public IP Relay'}
-                  </span>
+              {/* Quick Origin Location & Language Bar */}
+              <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500 font-medium">Origin Hop:</span>
+                    <span className="font-semibold text-slate-800">
+                      {threat?.geo_country ? `${threat.geo_country}${threat.geo_hops?.[0]?.city ? ` (${threat.geo_hops[0].city})` : ''}` : 'Public IP Relay'}
+                    </span>
+                  </div>
+                  {threat?.detected_language && (
+                    <div className="flex items-center gap-1.5 pl-3 border-l border-slate-200">
+                      <span className="text-slate-500 font-medium">Language:</span>
+                      <span className="font-semibold text-slate-800 flex items-center gap-1">
+                        {threat.detected_language !== 'English' && threat.detected_language !== 'en' && <span>🇮🇳</span>}
+                        <span>{threat.detected_language}</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={handleTrackLocation}

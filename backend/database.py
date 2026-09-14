@@ -71,6 +71,11 @@ async def create_tables() -> None:
                 await conn.exec_driver_sql(f"ALTER TABLE threat_scores ADD COLUMN {col} FLOAT")
             except Exception:
                 pass
+        for col_name, col_type in [("detected_language", "VARCHAR(64)"), ("language_code", "VARCHAR(16)")]:
+            try:
+                await conn.exec_driver_sql(f"ALTER TABLE threat_scores ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
 
 
 async def close_db() -> None:

@@ -19,6 +19,8 @@ export interface ThreatInfo {
   geo_org?: string | null;
   geo_city?: string | null;
   ip?: string | null;
+  detected_language?: string | null;
+  language_code?: string | null;
 }
 
 export interface EmailSummary {
@@ -84,6 +86,8 @@ export interface ThreatDetail {
   final_score: number;
   severity: 'LOW' | 'MEDIUM' | 'HIGH';
   quarantined: boolean;
+  detected_language?: string | null;
+  language_code?: string | null;
   raw_headers?: string;
   overrides?: Array<{
     id: string;

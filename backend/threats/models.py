@@ -63,6 +63,8 @@ class ThreatScore(Base):
     llm_threat_type = Column(String(64), nullable=True)
     llm_reasoning = Column(Text, nullable=True)     # JSON array of bullets
     llm_suspicious_phrases = Column(Text, nullable=True)  # JSON array
+    detected_language = Column(String(64), nullable=True, default="English")  # e.g., "Hindi (हिन्दी)", "Tamil (தமிழ்)"
+    language_code = Column(String(16), nullable=True, default="en")           # e.g., "hi", "ta", "bn", "hinglish", "en"
 
     # Safe Browsing stage
     urls_checked = Column(Text, nullable=True)      # JSON array

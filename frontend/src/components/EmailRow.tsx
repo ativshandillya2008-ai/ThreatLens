@@ -89,6 +89,15 @@ export default function EmailRow({ email }: Props) {
                 {isSpam ? 'SPAM / QUARANTINED' : 'QUARANTINED'}
               </span>
             )}
+            {email.threat.detected_language && !['English', 'en', 'Unknown'].includes(email.threat.detected_language) && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-medium flex-shrink-0"
+                title={`Detected Language: ${email.threat.detected_language}`}
+              >
+                <span>🇮🇳</span>
+                <span>{email.threat.detected_language.replace(/\s*\(.*?\)/, '')}</span>
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <button

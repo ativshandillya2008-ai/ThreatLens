@@ -60,6 +60,8 @@ def _score_to_dict(record: ThreatScore, include_headers: bool = False) -> dict:
         "final_score": record.final_score,
         "severity": record.severity,
         "quarantined": record.quarantined,
+        "detected_language": getattr(record, "detected_language", None),
+        "language_code": getattr(record, "language_code", None),
     }
     if include_headers and record.raw_headers_encrypted:
         try:

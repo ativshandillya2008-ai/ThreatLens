@@ -190,6 +190,8 @@ async def run_pipeline(
         severity=severity,
         quarantined=quarantined,
         raw_headers_encrypted=raw_headers,
+        detected_language=llm_result.detected_language,
+        language_code=llm_result.language_code,
     )
 
     async with factory() as session:

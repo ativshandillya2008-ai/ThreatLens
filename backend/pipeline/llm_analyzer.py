@@ -10,28 +10,43 @@ import logging
 import re
 from dataclasses import dataclass, field
 from email.message import Message
-from typing import Any
+from typing import Any, Optional
 
 from ..config import get_settings
+from .language_detector import detect_indian_language_hint
 
 logger = logging.getLogger(__name__)
 
 MAX_BODY_CHARS = 4000
 
-LLM_PROMPT_TEMPLATE = """You are an email security analyst with expertise in phishing and social engineering detection.
-Analyze the following email for threat indicators.
+LLM_PROMPT_TEMPLATE = """You are ThreatLens Multilingual Email Security Analyst, an expert in detecting phishing, cybercrime, and social engineering attacks across global languages and Indian native languages (including Hindi, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Punjabi, Odia, Urdu, Assamese, and Hinglish).
+
+Analyze the following email for threat indicators. Pay special attention to Indian financial, institutional, and regional cyber scams:
+- Bank account / NetBanking KYC deactivation or PAN-Aadhaar linking scams (SBI, HDFC, ICICI, Axis, PNB, etc.)
+- Electricity bill disconnection urgency (e.g., "Bijli vibhag disconnection tonight unless bill is paid")
+- Income Tax refund fraud / fake IT department imposter lures
+- Fake UPI / QR code payment requests / lottery / KBC prize frauds
+- EPFO / PF withdrawal or pension phishing
+- India Post / courier parcel customs clearance fees
+- Trai / SIM card deactivation alerts
+
+Pre-scan language hint: {script_hint}
 
 Return ONLY a valid JSON object with exactly these fields:
 {{
+  "detected_language": "<Language name, e.g. 'Hindi (हिन्दी)', 'Tamil (தமிழ்)', 'Bengali (বাংলা)', 'Telugu (తెలుగు)', 'Marathi (मराठी)', 'Gujarati (ગુજરાતી)', 'Kannada (ಕನ್ನಡ)', 'Malayalam (മലയാളം)', 'Punjabi (ਪੰਜਾਬੀ)', 'Odia (ଓଡ଼ିଆ)', 'Urdu (اردو)', 'Hinglish', 'English', etc.>",
+  "language_code": "<Code, e.g. 'hi', 'ta', 'bn', 'te', 'mr', 'gu', 'kn', 'ml', 'pa', 'or', 'ur', 'hinglish', 'en'>",
+  "is_indian_language": <true if native Indian language or Hinglish, else false>,
+  "english_translation": "<brief 1-2 sentence English summary of the message body, especially if non-English>",
   "threat_score": <float between 0.0 and 1.0>,
   "threat_type": "<one of: phishing, social_engineering, malware_lure, suspicious, legitimate>",
-  "reasoning": ["<bullet 1>", "<bullet 2>", ...],
-  "suspicious_phrases": ["<exact phrase from email>"]
+  "reasoning": ["<bullet 1 explaining threat indicators in English>", "<bullet 2>", ...],
+  "suspicious_phrases": ["<exact quote from email in original language with brief English meaning>"]
 }}
 
 Guidelines:
 - threat_score 0.0 = definitely legitimate, 1.0 = definite phishing/attack
-- reasoning: max 5 bullet points explaining your assessment
+- reasoning: max 5 bullet points explaining your assessment in clear English
 - suspicious_phrases: exact quotes from the email body that are red flags (empty list if none)
 - Do NOT include any text outside the JSON object
 
@@ -51,6 +66,10 @@ class LLMResult:
     threat_type: str = "unknown"
     reasoning: list[str] = field(default_factory=list)
     suspicious_phrases: list[str] = field(default_factory=list)
+    detected_language: str = "English"
+    language_code: str = "en"
+    is_indian_language: bool = False
+    english_translation: Optional[str] = None
     available: bool = True
     evidence: dict = field(default_factory=dict)
 
@@ -121,11 +140,22 @@ def _parse_llm_response(response_text: str) -> dict[str, Any]:
     if not isinstance(phrases, list):
         phrases = []
 
+    detected_language = str(data.get("detected_language") or "English").strip()
+    language_code = str(data.get("language_code") or "en").strip().lower()
+    is_indian_language = bool(data.get("is_indian_language", False))
+    english_translation = data.get("english_translation")
+    if english_translation:
+        english_translation = str(english_translation).strip()
+
     return {
         "threat_score": score,
         "threat_type": threat_type,
         "reasoning": reasoning,
         "suspicious_phrases": phrases,
+        "detected_language": detected_language,
+        "language_code": language_code,
+        "is_indian_language": is_indian_language,
+        "english_translation": english_translation,
     }
 
 
@@ -136,19 +166,28 @@ async def score_llm(msg: Message) -> LLMResult:
     """
     settings = get_settings()
 
+    from_header = msg.get("From", "(unknown)")
+    subject = msg.get("Subject", "(no subject)")
+    date = msg.get("Date", "(unknown)")
+    body = _extract_text_body(msg)
+
+    # 1. Pre-detect language and script hints
+    lang_hint = detect_indian_language_hint(f"{subject} {body}")
+    script_hint = lang_hint.details or "Standard Latin alphabet"
+    if lang_hint.is_indian_native:
+        script_hint += f" (Likely {lang_hint.likely_language})"
+
     if not settings.GEMINI_API_KEY:
         logger.warning("GEMINI_API_KEY not set — skipping LLM analysis")
         return LLMResult(
             score=0.0,
             threat_type="unknown",
+            detected_language=lang_hint.likely_language,
+            language_code=lang_hint.language_code,
+            is_indian_language=lang_hint.is_indian_native,
             available=False,
-            evidence={"reason": "GEMINI_API_KEY not configured"},
+            evidence={"reason": "GEMINI_API_KEY not configured", "script_hint": script_hint},
         )
-
-    from_header = msg.get("From", "(unknown)")
-    subject = msg.get("Subject", "(no subject)")
-    date = msg.get("Date", "(unknown)")
-    body = _extract_text_body(msg)
 
     if not body.strip():
         logger.warning("Empty email body — skipping LLM analysis")
@@ -156,10 +195,14 @@ async def score_llm(msg: Message) -> LLMResult:
             score=0.1,
             threat_type="suspicious",
             reasoning=["Email has no readable body content"],
-            evidence={"reason": "Empty body"},
+            detected_language=lang_hint.likely_language,
+            language_code=lang_hint.language_code,
+            is_indian_language=lang_hint.is_indian_native,
+            evidence={"reason": "Empty body", "script_hint": script_hint},
         )
 
     prompt = LLM_PROMPT_TEMPLATE.format(
+        script_hint=script_hint,
         from_header=from_header,
         subject=subject,
         date=date,
@@ -207,9 +250,19 @@ async def score_llm(msg: Message) -> LLMResult:
         raw_text = response.text
         parsed = _parse_llm_response(raw_text)
 
+        final_lang = parsed.get("detected_language") or "English"
+        final_code = parsed.get("language_code") or "en"
+        final_is_indian = parsed.get("is_indian_language", False)
+
+        # Fallback if text has Indic script but LLM genericized as English
+        if lang_hint.is_indian_native and (final_lang.lower() in ("english", "unknown") or final_code in ("en", "unknown")):
+            final_lang = lang_hint.likely_language
+            final_code = lang_hint.language_code
+            final_is_indian = True
+
         logger.info(
-            "LLM analysis: type=%s score=%.2f",
-            parsed["threat_type"], parsed["threat_score"],
+            "LLM analysis: type=%s score=%.2f language=%s (%s)",
+            parsed["threat_type"], parsed["threat_score"], final_lang, final_code,
         )
 
         return LLMResult(
@@ -217,8 +270,12 @@ async def score_llm(msg: Message) -> LLMResult:
             threat_type=parsed["threat_type"],
             reasoning=parsed["reasoning"],
             suspicious_phrases=parsed["suspicious_phrases"],
+            detected_language=final_lang,
+            language_code=final_code,
+            is_indian_language=final_is_indian,
+            english_translation=parsed.get("english_translation"),
             available=True,
-            evidence={"raw_prompt_chars": len(prompt), "body_chars": len(body)},
+            evidence={"raw_prompt_chars": len(prompt), "body_chars": len(body), "script_hint": script_hint},
         )
 
     except json.JSONDecodeError as exc:
@@ -226,6 +283,9 @@ async def score_llm(msg: Message) -> LLMResult:
         return LLMResult(
             score=0.0,
             threat_type="unknown",
+            detected_language=lang_hint.likely_language,
+            language_code=lang_hint.language_code,
+            is_indian_language=lang_hint.is_indian_native,
             available=True,
             evidence={"error": "JSON parse failure", "detail": str(exc)},
         )
@@ -234,6 +294,9 @@ async def score_llm(msg: Message) -> LLMResult:
         return LLMResult(
             score=0.0,
             threat_type="unknown",
+            detected_language=lang_hint.likely_language if 'lang_hint' in locals() else "English",
+            language_code=lang_hint.language_code if 'lang_hint' in locals() else "en",
+            is_indian_language=lang_hint.is_indian_native if 'lang_hint' in locals() else False,
             available=False,
             evidence={"error": str(exc)},
         )

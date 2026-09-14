@@ -156,6 +156,8 @@ async def list_messages(
                             if score_record and score_record.geo_hops and json.loads(score_record.geo_hops)
                             else None
                         ) if score_record else None,
+                        "detected_language": getattr(score_record, "detected_language", None) if score_record else None,
+                        "language_code": getattr(score_record, "language_code", None) if score_record else None,
                     },
                 })
             except Exception as exc:
@@ -231,6 +233,8 @@ async def get_message(request: Request, message_id: str) -> JSONResponse:
             "unsafe_urls": json.loads(score_record.unsafe_urls) if score_record.unsafe_urls else {},
             "url_score": score_record.url_score,
             "quarantined": score_record.quarantined,
+            "detected_language": getattr(score_record, "detected_language", None),
+            "language_code": getattr(score_record, "language_code", None),
             "analyzed_at": score_record.analyzed_at.isoformat() if score_record.analyzed_at else None,
         }
 
