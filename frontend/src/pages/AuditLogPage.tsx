@@ -14,6 +14,8 @@ import {
   ChevronRight,
   UserCheck,
   Printer,
+  Inbox,
+  AlertTriangle,
 } from 'lucide-react'
 import { api, ThreatDetail, UserInfo } from '../api/client'
 import ThreatBadge from '../components/ThreatBadge'
@@ -50,6 +52,7 @@ export default function AuditLogPage({ user }: Props) {
   // Quick override modal state
   const [overrideTarget, setOverrideTarget] = useState<ThreatDetail | null>(null)
   const [overrideAction, setOverrideAction] = useState<'release' | 'confirm'>('release')
+  const [overrideFolder, setOverrideFolder] = useState<'inbox' | 'spam'>('inbox')
   const [overrideReason, setOverrideReason] = useState('')
   const [overrideSubmitting, setOverrideSubmitting] = useState(false)
   const [overrideSuccess, setOverrideSuccess] = useState('')
@@ -118,8 +121,8 @@ export default function AuditLogPage({ user }: Props) {
     if (!overrideTarget) return
     setOverrideSubmitting(true)
     try {
-      await api.threats.override(overrideTarget.id, overrideAction, overrideReason)
-      setOverrideSuccess(`Threat successfully marked as "${overrideAction}"`)
+      await api.threats.override(overrideTarget.id, overrideAction, overrideReason, overrideFolder)
+      setOverrideSuccess(`Email successfully updated & moved to ${overrideFolder === 'inbox' ? 'Gmail Inbox' : 'Gmail Spam folder'}!`)
       setTimeout(() => {
         setOverrideTarget(null)
         setOverrideSuccess('')
@@ -381,9 +384,10 @@ export default function AuditLogPage({ user }: Props) {
                       onClick={() => {
                         setOverrideTarget(t)
                         setOverrideAction(t.quarantined ? 'release' : 'confirm')
+                        setOverrideFolder(t.quarantined ? 'inbox' : 'spam')
                       }}
                       className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 transition-colors shadow-sm cursor-pointer"
-                      title="Submit Audit Override"
+                      title="Submit Audit Override & Move Email"
                     >
                       Override
                     </button>
@@ -520,29 +524,50 @@ export default function AuditLogPage({ user }: Props) {
             ) : (
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs text-slate-600 font-medium mb-1">Override Action</label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <label className="block text-xs text-slate-700 font-bold mb-1.5">
+                    Select Target Folder & Disposition:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
                     <button
                       type="button"
-                      onClick={() => setOverrideAction('release')}
-                      className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all ${
-                        overrideAction === 'release'
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-400 shadow-sm'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      onClick={() => {
+                        setOverrideAction('release')
+                        setOverrideFolder('inbox')
+                      }}
+                      className={`p-3 rounded-xl text-left border transition-all cursor-pointer ${
+                        overrideFolder === 'inbox'
+                          ? 'bg-emerald-50 text-emerald-950 border-emerald-400 ring-2 ring-emerald-500/20 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                       }`}
                     >
-                      Release from Quarantine
+                      <div className="flex items-center gap-1.5">
+                        <Inbox className={`h-4 w-4 ${overrideFolder === 'inbox' ? 'text-emerald-600' : 'text-slate-400'}`} />
+                        <span className="font-bold text-xs">Move to Inbox</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1 leading-normal">
+                        Remove quarantine & restore directly to user's Inbox.
+                      </p>
                     </button>
+
                     <button
                       type="button"
-                      onClick={() => setOverrideAction('confirm')}
-                      className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all ${
-                        overrideAction === 'confirm'
-                          ? 'bg-rose-50 text-rose-800 border-rose-400 shadow-sm'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      onClick={() => {
+                        setOverrideAction('confirm')
+                        setOverrideFolder('spam')
+                      }}
+                      className={`p-3 rounded-xl text-left border transition-all cursor-pointer ${
+                        overrideFolder === 'spam'
+                          ? 'bg-rose-50 text-rose-950 border-rose-400 ring-2 ring-rose-500/20 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                       }`}
                     >
-                      Confirm Threat Flag
+                      <div className="flex items-center gap-1.5">
+                        <AlertTriangle className={`h-4 w-4 ${overrideFolder === 'spam' ? 'text-rose-600' : 'text-slate-400'}`} />
+                        <span className="font-bold text-xs">Move to Spam</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1 leading-normal">
+                        Flag as confirmed threat & move to Spam folder.
+                      </p>
                     </button>
                   </div>
                 </div>
@@ -565,7 +590,7 @@ export default function AuditLogPage({ user }: Props) {
                     type="button"
                     onClick={() => setOverrideTarget(null)}
                     disabled={overrideSubmitting}
-                    className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs text-slate-700 transition-colors font-medium"
+                    className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs text-slate-700 transition-colors font-medium cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -573,9 +598,11 @@ export default function AuditLogPage({ user }: Props) {
                     type="button"
                     onClick={handleExecuteOverride}
                     disabled={overrideSubmitting}
-                    className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white transition-colors shadow-sm disabled:opacity-50"
+                    className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
                   >
-                    {overrideSubmitting ? 'Saving...' : 'Apply Override'}
+                    {overrideSubmitting
+                      ? 'Moving Email...'
+                      : `Apply Override & Move to ${overrideFolder === 'inbox' ? 'Inbox' : 'Spam'}`}
                   </button>
                 </div>
               </div>

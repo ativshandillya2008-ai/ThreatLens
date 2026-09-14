@@ -51,19 +51,7 @@ async def ensure_quarantine_label(user_email: str) -> str:
         return label_id
 
 
-async def quarantine_message(user_email: str, message_id: str) -> None:
-    """Apply the Quarantine & SPAM labels and remove from INBOX."""
-    label_id = await ensure_quarantine_label(user_email)
-    async with GmailClient(user_email) as client:
-        await client.modify_message(
-            message_id=message_id,
-            add_label_ids=[label_id, "SPAM"],
-            remove_label_ids=["INBOX"],
-        )
-    logger.info("Quarantined message %s to SPAM for %s", message_id, user_email)
-
-
-async def release_from_quarantine(user_email: str, message_id: str) -> None:
+async def move_to_inbox(user_email: str, message_id: str) -> None:
     """Remove the Quarantine & SPAM labels and restore to INBOX."""
     label_id = await ensure_quarantine_label(user_email)
     async with GmailClient(user_email) as client:
@@ -72,7 +60,29 @@ async def release_from_quarantine(user_email: str, message_id: str) -> None:
             remove_label_ids=[label_id, "SPAM"],
             add_label_ids=["INBOX"],
         )
-    logger.info("Released message %s from quarantine for %s", message_id, user_email)
+    logger.info("Moved message %s to INBOX for %s", message_id, user_email)
+
+
+async def move_to_spam(user_email: str, message_id: str) -> None:
+    """Apply the Quarantine & SPAM labels and remove from INBOX."""
+    label_id = await ensure_quarantine_label(user_email)
+    async with GmailClient(user_email) as client:
+        await client.modify_message(
+            message_id=message_id,
+            add_label_ids=[label_id, "SPAM"],
+            remove_label_ids=["INBOX"],
+        )
+    logger.info("Moved message %s to SPAM for %s", message_id, user_email)
+
+
+async def quarantine_message(user_email: str, message_id: str) -> None:
+    """Apply the Quarantine & SPAM labels and remove from INBOX."""
+    await move_to_spam(user_email, message_id)
+
+
+async def release_from_quarantine(user_email: str, message_id: str) -> None:
+    """Remove the Quarantine & SPAM labels and restore to INBOX."""
+    await move_to_inbox(user_email, message_id)
 
 
 async def invalidate_label_cache(user_email: str) -> None:

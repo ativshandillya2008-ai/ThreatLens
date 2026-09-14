@@ -14,7 +14,7 @@ from sqlalchemy import select, and_, desc
 from ..crypto import decrypt_token
 from ..database import get_db, get_session_factory
 from .models import AuditOverride, ThreatScore
-from .quarantine import release_from_quarantine
+from .quarantine import release_from_quarantine, quarantine_message, move_to_inbox, move_to_spam
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -169,8 +169,9 @@ async def get_threat(
 
 
 class OverrideRequest(BaseModel):
-    action: str  # "release" or "confirm"
+    action: str  # "release", "confirm", "move_inbox", "move_spam", "inbox", "spam"
     reason: Optional[str] = None
+    destination_folder: Optional[str] = None  # "inbox" | "spam"
 
 
 @router.post("/{threat_id}/override")
@@ -179,11 +180,22 @@ async def override_threat(
     threat_id: str,
     body: OverrideRequest,
 ) -> JSONResponse:
-    """Record a user override and optionally release from quarantine."""
+    """Record a user override and move email to inbox or spam folder."""
     user_email = _require_auth(request)
 
-    if body.action not in ("release", "confirm"):
-        raise HTTPException(status_code=400, detail="action must be 'release' or 'confirm'")
+    valid_actions = ("release", "confirm", "move_inbox", "move_spam", "inbox", "spam")
+    if body.action not in valid_actions:
+        raise HTTPException(status_code=400, detail=f"action must be one of: {', '.join(valid_actions)}")
+
+    # Determine target folder
+    dest_folder = (body.destination_folder or "").lower()
+    if not dest_folder:
+        if body.action in ("release", "move_inbox", "inbox"):
+            dest_folder = "inbox"
+        elif body.action in ("confirm", "move_spam", "spam"):
+            dest_folder = "spam"
+        else:
+            dest_folder = "inbox"
 
     factory = get_session_factory()
     async with factory() as session:
@@ -195,40 +207,63 @@ async def override_threat(
         )
         record = result.scalar_one_or_none()
 
-    if not record:
-        raise HTTPException(status_code=404, detail="Threat record not found")
+        if not record:
+            raise HTTPException(status_code=404, detail="Threat record not found")
 
-    # Log the override (append-only)
-    override = AuditOverride(
-        threat_score_id=threat_id,
-        user_email=user_email,
-        action=body.action,
-        reason=body.reason,
-        override_at=datetime.now(timezone.utc),
-    )
-    async with factory() as session:
+        # Update quarantine state on record
+        if dest_folder == "inbox":
+            record.quarantined = False
+        elif dest_folder == "spam":
+            record.quarantined = True
+
+        action_label = "release" if dest_folder == "inbox" else "confirm"
+        reason_label = (
+            f"[{dest_folder.upper()}] {body.reason}" if body.reason else f"Moved to {dest_folder.upper()}"
+        )
+        # Log the override (append-only)
+        override = AuditOverride(
+            threat_score_id=threat_id,
+            user_email=user_email,
+            action=body.action if body.action in ("release", "confirm") else action_label,
+            reason=reason_label,
+            override_at=datetime.now(timezone.utc),
+        )
         session.add(override)
         await session.commit()
 
     logger.info(
-        "Override: user=%s threat=%s action=%s reason=%s",
-        user_email, threat_id, body.action, body.reason,
+        "Override: user=%s threat=%s action=%s dest=%s reason=%s",
+        user_email, threat_id, body.action, dest_folder, body.reason,
     )
 
-    # Release from quarantine if requested
-    if body.action == "release" and record.quarantined:
-        try:
+    # Perform folder move in Gmail
+    folder_move_error = None
+    try:
+        if dest_folder == "inbox":
             await release_from_quarantine(user_email, record.message_id)
-        except Exception as exc:
-            logger.error("Failed to release quarantine for %s: %s", threat_id, exc)
-            return JSONResponse(
-                {"status": "override_logged", "quarantine_release": "failed", "error": str(exc)},
-                status_code=207,
-            )
+        elif dest_folder == "spam":
+            await quarantine_message(user_email, record.message_id)
+    except Exception as exc:
+        logger.error("Failed to move email to %s for threat %s: %s", dest_folder, threat_id, exc)
+        folder_move_error = str(exc)
+
+    if folder_move_error:
+        return JSONResponse(
+            {
+                "status": "override_logged",
+                "folder_move": "failed",
+                "destination_folder": dest_folder,
+                "error": folder_move_error,
+                "override_id": override.id,
+            },
+            status_code=207,
+        )
 
     return JSONResponse({
         "status": "ok",
         "action": body.action,
+        "destination_folder": dest_folder,
+        "quarantined": record.quarantined,
         "override_id": override.id,
     })
 

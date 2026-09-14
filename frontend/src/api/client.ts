@@ -327,11 +327,19 @@ export const api = {
       const qs = includeHeaders ? '?include_headers=true' : '';
       return apiFetch<ThreatDetail>(`/api/threats/${id}${qs}`);
     },
-    override: (id: string, action: 'release' | 'confirm', reason?: string) =>
-      apiFetch<{ status: string; action: string; override_id: string }>(`/api/threats/${id}/override`, {
-        method: 'POST',
-        body: JSON.stringify({ action, reason: reason ?? '' }),
-      }),
+    override: (
+      id: string,
+      action: 'release' | 'confirm' | 'move_inbox' | 'move_spam' | string,
+      reason?: string,
+      destination_folder?: 'inbox' | 'spam' | string,
+    ) =>
+      apiFetch<{ status: string; action: string; destination_folder?: string; override_id: string }>(
+        `/api/threats/${id}/override`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ action, reason: reason ?? '', destination_folder }),
+        }
+      ),
     stats: () => apiFetch<ThreatStats>('/api/threats/stats/summary'),
   },
 

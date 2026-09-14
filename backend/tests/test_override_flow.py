@@ -261,3 +261,84 @@ async def test_override_confirm_does_not_call_release():
         )
 
     mock_release.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_override_move_to_spam_calls_quarantine_message():
+    """'move_spam' action or destination_folder='spam' should call quarantine_message."""
+    from backend.threats.router import override_threat, OverrideRequest
+    from backend.threats.models import ThreatScore
+
+    request = MagicMock()
+    request.session = {"user_email": "user@example.com"}
+
+    mock_record = MagicMock(spec=ThreatScore)
+    mock_record.quarantined = False
+    mock_record.message_id = "msg-xyz"
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_record
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_session.add = MagicMock()
+    mock_session.commit = AsyncMock()
+
+    mock_override = MagicMock()
+    mock_override.id = "override-uuid-789"
+
+    with patch("backend.threats.router.get_session_factory") as mock_factory, \
+         patch("backend.threats.router.AuditOverride", return_value=mock_override), \
+         patch("backend.threats.router.quarantine_message", new_callable=AsyncMock) as mock_quarantine:
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_factory.return_value.return_value = mock_ctx
+
+        res = await override_threat(
+            request, "threat-id", OverrideRequest(action="move_spam", destination_folder="spam", reason="Suspected phishing")
+        )
+
+    mock_quarantine.assert_called_once_with("user@example.com", "msg-xyz")
+    assert mock_record.quarantined is True
+
+
+@pytest.mark.asyncio
+async def test_override_move_to_inbox_calls_release():
+    """'move_inbox' action should call release_from_quarantine and clear quarantined flag."""
+    from backend.threats.router import override_threat, OverrideRequest
+    from backend.threats.models import ThreatScore
+
+    request = MagicMock()
+    request.session = {"user_email": "user@example.com"}
+
+    mock_record = MagicMock(spec=ThreatScore)
+    mock_record.quarantined = True
+    mock_record.message_id = "msg-inbox"
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_record
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_session.add = MagicMock()
+    mock_session.commit = AsyncMock()
+
+    mock_override = MagicMock()
+    mock_override.id = "override-uuid-abc"
+
+    with patch("backend.threats.router.get_session_factory") as mock_factory, \
+         patch("backend.threats.router.AuditOverride", return_value=mock_override), \
+         patch("backend.threats.router.release_from_quarantine", new_callable=AsyncMock) as mock_release:
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_factory.return_value.return_value = mock_ctx
+
+        res = await override_threat(
+            request, "threat-id", OverrideRequest(action="move_inbox", destination_folder="inbox", reason="False positive confirmed")
+        )
+
+    mock_release.assert_called_once_with("user@example.com", "msg-inbox")
+    assert mock_record.quarantined is False
+

@@ -18,6 +18,7 @@ import {
   Crosshair,
   MapPin,
   Printer,
+  Inbox,
 } from 'lucide-react'
 import { ThreatDetail, api } from '../api/client'
 import ThreatBadge from './ThreatBadge'
@@ -88,7 +89,12 @@ export default function AuditPanel({ threat, onThreatUpdated }: Props) {
   const [loadingHeaders, setLoadingHeaders] = useState(false)
   const [copiedHeaders, setCopiedHeaders] = useState(false)
 
-  const [overrideAction, setOverrideAction] = useState<'release' | 'confirm'>('release')
+  const [overrideAction, setOverrideAction] = useState<'release' | 'confirm'>(
+    threat.quarantined ? 'release' : 'confirm'
+  )
+  const [overrideFolder, setOverrideFolder] = useState<'inbox' | 'spam'>(
+    threat.quarantined ? 'inbox' : 'spam'
+  )
   const [overrideReason, setOverrideReason] = useState('')
   const [overrideSubmitting, setOverrideSubmitting] = useState(false)
   const [overrideMessage, setOverrideMessage] = useState('')
@@ -121,8 +127,8 @@ export default function AuditPanel({ threat, onThreatUpdated }: Props) {
     setOverrideSubmitting(true)
     setOverrideMessage('')
     try {
-      await api.threats.override(threat.id, overrideAction, overrideReason)
-      setOverrideMessage(`Override recorded: marked as ${overrideAction}`)
+      await api.threats.override(threat.id, overrideAction, overrideReason, overrideFolder)
+      setOverrideMessage(`Success: email moved to ${overrideFolder === 'inbox' ? 'INBOX' : 'SPAM folder'}`)
       const updated = await api.threats.get(threat.id)
       onThreatUpdated?.(updated)
       setOverrideReason('')
@@ -440,48 +446,69 @@ export default function AuditPanel({ threat, onThreatUpdated }: Props) {
             </div>
           )}
 
-          <div className="pt-2 border-t border-slate-100 space-y-2">
-            <div className="text-xs font-bold text-slate-800">Quick Override</div>
+          <div className="pt-2 border-t border-slate-100 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-900">Security Override & Move</span>
+              <span className="text-[10px] text-slate-500 font-medium">Placement</span>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => setOverrideAction('release')}
-                className={`py-1.5 rounded-lg text-xs font-semibold border ${
-                  overrideAction === 'release'
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-400'
-                    : 'bg-white text-slate-600 border-slate-200'
+                type="button"
+                onClick={() => {
+                  setOverrideAction('release')
+                  setOverrideFolder('inbox')
+                }}
+                className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer ${
+                  overrideFolder === 'inbox'
+                    ? 'bg-emerald-50 text-emerald-950 border-emerald-400 ring-2 ring-emerald-500/20 shadow-xs'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                 }`}
               >
-                Release
+                <div className="flex items-center gap-1.5">
+                  <Inbox className={`h-3.5 w-3.5 ${overrideFolder === 'inbox' ? 'text-emerald-600' : 'text-slate-400'}`} />
+                  <span className="font-bold text-xs">Move to Inbox</span>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Un-quarantine & restore</div>
               </button>
               <button
-                onClick={() => setOverrideAction('confirm')}
-                className={`py-1.5 rounded-lg text-xs font-semibold border ${
-                  overrideAction === 'confirm'
-                    ? 'bg-rose-50 text-rose-800 border-rose-400'
-                    : 'bg-white text-slate-600 border-slate-200'
+                type="button"
+                onClick={() => {
+                  setOverrideAction('confirm')
+                  setOverrideFolder('spam')
+                }}
+                className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer ${
+                  overrideFolder === 'spam'
+                    ? 'bg-rose-50 text-rose-950 border-rose-400 ring-2 ring-rose-500/20 shadow-xs'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                 }`}
               >
-                Quarantine
+                <div className="flex items-center gap-1.5">
+                  <AlertTriangle className={`h-3.5 w-3.5 ${overrideFolder === 'spam' ? 'text-rose-600' : 'text-slate-400'}`} />
+                  <span className="font-bold text-xs">Move to Spam</span>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Flag & send to Spam</div>
               </button>
             </div>
             <input
               type="text"
               value={overrideReason}
               onChange={e => setOverrideReason(e.target.value)}
-              placeholder="Reason (optional)"
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800"
+              placeholder="Audited reason / remarks (optional)"
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-800"
             />
             {overrideMessage && (
-              <div className="text-[11px] p-2 bg-blue-50 text-blue-800 rounded-lg border border-blue-200">
+              <div className="text-[11px] p-2 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200 font-medium">
                 {overrideMessage}
               </div>
             )}
             <button
               onClick={handleApplyOverride}
               disabled={overrideSubmitting}
-              className="w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white transition-colors cursor-pointer"
+              className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white transition-colors cursor-pointer shadow-xs"
             >
-              {overrideSubmitting ? 'Saving...' : 'Apply Override'}
+              {overrideSubmitting
+                ? 'Moving Email...'
+                : `Apply Override & Move to ${overrideFolder === 'inbox' ? 'Inbox' : 'Spam'}`}
             </button>
           </div>
         </div>
