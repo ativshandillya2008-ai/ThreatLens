@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ThreatLens Email Threat Shield</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --card-border: #1f2937;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --success: #10b981;
+    }
+
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 16px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      box-sizing: border-box;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .logo {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+    }
+
+    .title {
+      font-size: 15px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin: 2px 0 0;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 9999px;
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      margin-left: auto;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+    }
+
+    .status-dot.offline {
+      background: var(--danger);
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .card-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 8px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      text-align: center;
+    }
+
+    .stat-box {
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 6px;
+      padding: 8px 4px;
+    }
+
+    .stat-number {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .stat-number.high { color: var(--danger); }
+    .stat-number.med { color: var(--warning); }
+    .stat-number.low { color: var(--success); }
+
+    .stat-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .form-group {
+      margin-bottom: 8px;
+    }
+
+    .label {
+      display: block;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 11px;
+      color: var(--text);
+      box-sizing: border-box;
+      font-family: monospace;
+    }
+
+    .input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s ease;
+      text-decoration: none;
+      box-sizing: border-box;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background: var(--card-border);
+      color: var(--text);
+      margin-top: 8px;
+    }
+
+    .btn-secondary:hover {
+      background: #374151;
+    }
+
+    .footer {
+      font-size: 10px;
+      text-align: center;
+      color: var(--text-muted);
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="icons/icon48.png" alt="Logo" class="logo">
+    <div>
+      <h1 class="title">ThreatLens Shield</h1>
+      <p class="subtitle">Native Gmail Interceptor</p>
+    </div>
+    <div class="status-badge" id="status-badge">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">Connected</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Mailbox Threat Summary</div>
+    <div class="stats-grid">
+      <div class="stat-box">
+        <div class="stat-number high" id="stat-high">0</div>
+        <div class="stat-label">High Threat</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-number med" id="stat-med">0</div>
+        <div class="stat-label">Suspicious</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-number low" id="stat-low">0</div>
+        <div class="stat-label">Safe</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Backend Connector</div>
+    <div class="form-group">
+      <label class="label" for="api-url">Active API URL</label>
+      <input type="text" id="api-url" class="input" placeholder="https://..." />
+    </div>
+    <button class="btn btn-primary" id="btn-save">Save & Reconnect</button>
+  </div>
+
+  <button class="btn btn-secondary" id="btn-sync">↻ Force Threat Sync</button>
+  <a href="#" target="_blank" class="btn btn-secondary" id="btn-dashboard">Open Forensic Audit Log ↗</a>
+
+  <div class="footer">
+    Protected by ThreatLens Multilayer Engine
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

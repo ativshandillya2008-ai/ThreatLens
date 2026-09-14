@@ -1,0 +1,37 @@
+Return-Path: <noreply@github.com>
+Received: from out-23.smtp.github.com ([192.30.252.23])
+        by mx.google.com with ESMTPS id xyz789
+        for <user@gmail.com>;
+        Sat, 11 Sep 2026 09:00:00 -0700 (PDT)
+Authentication-Results: mx.google.com;
+       spf=pass (google.com: domain of github.com designates 192.30.252.23 as permitted sender) smtp.mailfrom=noreply@github.com;
+       dkim=pass header.i=@github.com header.s=pf2023;
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=github.com
+From: GitHub <noreply@github.com>
+To: user@gmail.com
+Subject: Your weekly GitHub digest
+Date: Sat, 11 Sep 2026 16:00:00 +0000
+Message-ID: <digest-2026-09-11@github.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: quoted-printable
+
+Hi there,
+
+Here's your weekly GitHub digest:
+
+Pull Requests:
+- [my-repo] Fix authentication bug (#142) - merged
+- [my-repo] Add unit tests for OAuth flow (#143) - open
+
+Issues:
+- [my-repo] TypeError in config loader (#141) - closed
+
+Check your notifications at https://github.com/notifications
+
+Thanks,
+The GitHub Team
+
+--
+You are receiving this because you opted in to weekly digests.
+Unsubscribe: https://github.com/settings/notifications

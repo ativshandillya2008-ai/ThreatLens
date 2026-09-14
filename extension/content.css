@@ -1,0 +1,41 @@
+/**
+ * ThreatLens Email Threat Shield — Content Styles
+ * Styles for Gmail row integration and host anchors.
+ * Note: Internal badge and modal styles are encapsulated inside Shadow DOMs.
+ */
+
+/* Subtle Gmail row indicators */
+tr.zA.omni-threat-high,
+div.zA.omni-threat-high {
+  border-left: 4px solid #dc2626 !important;
+  background-color: rgba(220, 38, 38, 0.06) !important;
+}
+
+tr.zA.omni-threat-medium,
+div.zA.omni-threat-medium {
+  border-left: 4px solid #f59e0b !important;
+  background-color: rgba(245, 158, 11, 0.04) !important;
+}
+
+tr.zA.omni-threat-low,
+div.zA.omni-threat-low {
+  border-left: 2px solid #10b981 !important;
+}
+
+/* Badge Host Anchor */
+.omni-badge-host {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-right: 8px;
+  line-height: 1;
+}
+
+/* Fullscreen Interstitial Host Anchor */
+.omni-interstitial-host {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647; /* Maximum z-index above all Gmail UI */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

@@ -1,0 +1,27 @@
+Return-Path: <paypal-security@paypal-alerts.ru>
+Received: from mail.paypal-alerts.ru ([185.220.101.47])
+        by mx.google.com with ESMTP id abc123
+        for <victim@gmail.com>;
+        Sat, 11 Sep 2026 00:00:00 -0700 (PDT)
+Authentication-Results: mx.google.com;
+       spf=fail (google.com: domain of paypal-alerts.ru does not designate 185.220.101.47 as permitted sender) smtp.mailfrom=paypal-security@paypal-alerts.ru;
+       dkim=none;
+       dmarc=fail (p=REJECT sp=REJECT dis=REJECT) header.from=paypal-alerts.ru
+From: "PayPal Security" <paypal-security@paypal-alerts.ru>
+To: victim@gmail.com
+Subject: =?UTF-8?B?4pqgIFVyZ2VudDogWW91ciBQYXlQYWwgYWNjb3VudCBoYXMgYmVlbiBzdXNwZW5kZWQ=?=
+Date: Sat, 11 Sep 2026 07:00:00 +0000
+Message-ID: <fake-message-id@paypal-alerts.ru>
+MIME-Version: 1.0
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: base64
+
+PCFET0NUWVBFIGh0bWw+CjxodG1sPgo8aGVhZD48dGl0bGU+QWNjb3VudCBTdXNwZW5kZWQ8
+L3RpdGxlPjwvaGVhZD4KPGJvZHk+CjxoMT5VcmdlbnQgTm90aWZpY2F0aW9uPC9oMT4KPHA+
+WW91ciBQYXlQYWwgYWNjb3VudCBoYXMgYmVlbiBzdXNwZW5kZWQgZHVlIHRvIHN1c3BpY2lvdXMg
+YWN0aXZpdHkuIFlvdSBtdXN0IHZlcmlmeSB5b3VyIGlkZW50aXR5IHdpdGhpbiAyNGhvdXJzIG9y
+IHlvdXIgYWNjb3VudCB3aWxsIGJlIHBlcm1hbmVudGx5IGNsb3NlZC48L3A+CjxwPjxhIGhyZWY9
+Imh0dHA6Ly9wYXlwYWwtdmVyaWZ5LWxvZ2luLnJ1L3NlY3VyZT90b2tlbj1hYmMxMjMiPkNs
+aWNrIGhlcmUgdG8gdmVyaWZ5IHlvdXIgYWNjb3VudCBub3c8L2E+PC9wPgo8cD5JZiB5b3Ug
+ZG8gbm90IHZlcmlmeSB5b3VyIGFjY291bnQgeW91ciB0cmFuc2FjdGlvbnMgd2lsbCBiZSBi
+bG9ja2VkLjwvcD4KPC9ib2R5Pgo8L2h0bWw+

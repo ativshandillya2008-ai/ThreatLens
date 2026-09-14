@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer utilities {
+  .threat-badge-low {
+    @apply bg-emerald-50 text-emerald-700 border border-emerald-200;
+  }
+  .threat-badge-medium {
+    @apply bg-amber-50 text-amber-700 border border-amber-200;
+  }
+  .threat-badge-high {
+    @apply bg-rose-50 text-rose-700 border border-rose-200;
+  }
+  .glass-panel {
+    @apply bg-white border border-slate-200 shadow-sm;
+  }
+  .glass-card {
+    @apply bg-white border border-slate-200 hover:border-blue-300 hover:shadow-sm transition-all duration-150;
+  }
+}
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Tactical Radar Concentric Pulse Marker Animation */
+@keyframes tactical-pulse-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+.tactical-pulse-wave {
+  animation: tactical-pulse-ring 2.2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+
