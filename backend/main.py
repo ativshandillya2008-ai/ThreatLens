@@ -5,6 +5,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -96,9 +97,28 @@ app.add_middleware(
 )
 
 # ── CORS Middleware (outermost) ─────────────────────────────────────────────
+_cors_origins = {
+    f"http://{settings.HOST}:{settings.PORT}",
+    f"http://127.0.0.1:{settings.PORT}",
+    f"http://localhost:{settings.PORT}",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+}
+
+if settings.OAUTH_REDIRECT_URI:
+    _p = urlparse(settings.OAUTH_REDIRECT_URI)
+    if _p.scheme and _p.netloc:
+        _cors_origins.add(f"{_p.scheme}://{_p.netloc}")
+
+if settings.ALLOWED_ORIGINS:
+    for _orig in settings.ALLOWED_ORIGINS.split(","):
+        _cleaned = _orig.strip()
+        if _cleaned:
+            _cors_origins.add(_cleaned)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[f"http://{settings.HOST}:{settings.PORT}"],
+    allow_origins=list(_cors_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*", "X-CSRF-Token"],

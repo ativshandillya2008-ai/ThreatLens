@@ -2,6 +2,9 @@
 
 AI-powered email threat detection with real-time Gmail scanning, SPF/DKIM/DMARC validation, IP geolocation, Gemini LLM analysis, and Safe Browsing URL reputation checks.
 
+
+> 🚀 **Looking to deploy online for team or public access?** See the complete [Deployment Guide](DEPLOYMENT.md) for 1-click cloud hosting (Render, Cloud Run, VPS, Cloudflare Tunnel).
+
 ---
 
 ## Quick Start (Local Dev)

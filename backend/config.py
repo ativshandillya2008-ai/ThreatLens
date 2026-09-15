@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     HOST: str = "127.0.0.1"
     PORT: int = 8088
     DEBUG: bool = False
+    ALLOWED_ORIGINS: str = ""  # Comma-separated list of extra allowed CORS origins
 
     @field_validator("FERNET_KEY", mode="before")
     @classmethod
