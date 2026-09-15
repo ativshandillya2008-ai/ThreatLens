@@ -45,6 +45,12 @@ async def login(request: Request) -> RedirectResponse:
     return RedirectResponse(url=auth_url)
 
 
+def _frontend_redirect(path: str) -> RedirectResponse:
+    settings = get_settings()
+    base = settings.FRONTEND_URL.rstrip("/") if settings.FRONTEND_URL else ""
+    return RedirectResponse(url=f"{base}{path}")
+
+
 @router.get("/callback")
 async def callback(request: Request) -> RedirectResponse:
     """Handle Google's OAuth2 callback.
@@ -58,7 +64,7 @@ async def callback(request: Request) -> RedirectResponse:
 
     if error:
         logger.warning("OAuth error from Google: %s", error)
-        return RedirectResponse(url=f"/?error=oauth_denied")
+        return _frontend_redirect("/?error=oauth_denied")
 
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state parameter")
@@ -80,7 +86,7 @@ async def callback(request: Request) -> RedirectResponse:
         token_response = await exchange_code_for_tokens(code, code_verifier)
     except Exception as exc:
         logger.error("Token exchange failed: %s", exc)
-        return RedirectResponse(url="/?error=token_exchange_failed")
+        return _frontend_redirect("/?error=token_exchange_failed")
 
     access_token = token_response.get("access_token")
     refresh_token = token_response.get("refresh_token")
@@ -89,18 +95,18 @@ async def callback(request: Request) -> RedirectResponse:
 
     if not access_token or not refresh_token:
         logger.error("Token response missing access_token or refresh_token")
-        return RedirectResponse(url="/?error=incomplete_token_response")
+        return _frontend_redirect("/?error=incomplete_token_response")
 
     # Fetch user profile
     try:
         userinfo = await get_userinfo(access_token)
     except Exception as exc:
         logger.error("Failed to fetch userinfo: %s", exc)
-        return RedirectResponse(url="/?error=userinfo_failed")
+        return _frontend_redirect("/?error=userinfo_failed")
 
     user_email = userinfo.get("email")
     if not user_email:
-        return RedirectResponse(url="/?error=no_email")
+        return _frontend_redirect("/?error=no_email")
 
     # Store tokens securely
     await store_tokens(
@@ -117,7 +123,7 @@ async def callback(request: Request) -> RedirectResponse:
     request.session["user_picture"] = userinfo.get("picture", "")
 
     logger.info("OAuth flow complete for %s", user_email)
-    return RedirectResponse(url="/inbox")
+    return _frontend_redirect("/inbox")
 
 
 @router.post("/logout")

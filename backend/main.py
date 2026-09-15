@@ -87,13 +87,17 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 app.add_middleware(CSRFMiddleware)
 
 # ── Session Middleware (must wrap CSRFMiddleware so request.session is available)
+# When FRONTEND_URL is specified (e.g. Vercel frontend + Render backend), cross-site cookies require SameSite=None + Secure
+_same_site = "none" if (settings.FRONTEND_URL and _secure_cookies) else "lax"
+_cookie_secure = True if _same_site == "none" else _secure_cookies
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.SESSION_SECRET,
     session_cookie=settings.SESSION_COOKIE_NAME,
     max_age=settings.SESSION_MAX_AGE,
-    https_only=_secure_cookies,   # Secure flag: False in dev, True in prod
-    same_site="lax",              # SameSite=Lax — blocks CSRF from cross-site POSTs
+    https_only=_cookie_secure,
+    same_site=_same_site,
 )
 
 # ── CORS Middleware (outermost) ─────────────────────────────────────────────
@@ -109,6 +113,11 @@ if settings.OAUTH_REDIRECT_URI:
     _p = urlparse(settings.OAUTH_REDIRECT_URI)
     if _p.scheme and _p.netloc:
         _cors_origins.add(f"{_p.scheme}://{_p.netloc}")
+
+if settings.FRONTEND_URL:
+    _pf = urlparse(settings.FRONTEND_URL)
+    if _pf.scheme and _pf.netloc:
+        _cors_origins.add(f"{_pf.scheme}://{_pf.netloc}")
 
 if settings.ALLOWED_ORIGINS:
     for _orig in settings.ALLOWED_ORIGINS.split(","):

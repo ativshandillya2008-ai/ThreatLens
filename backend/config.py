@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     PORT: int = 8088
     DEBUG: bool = False
     ALLOWED_ORIGINS: str = ""  # Comma-separated list of extra allowed CORS origins
+    FRONTEND_URL: str = ""     # Public URL of frontend (e.g. https://threatlens.vercel.app)
 
     @field_validator("FERNET_KEY", mode="before")
     @classmethod

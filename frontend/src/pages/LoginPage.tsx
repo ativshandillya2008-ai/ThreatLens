@@ -1,4 +1,5 @@
 import { Shield, AlertTriangle, Lock, Globe, Bot, CheckCircle2, ArrowRight } from 'lucide-react'
+import { getApiUrl } from '../api/client'
 
 export default function LoginPage() {
   const urlParams = new URLSearchParams(window.location.search)
@@ -97,7 +98,7 @@ export default function LoginPage() {
 
           {/* Connect Button */}
           <a
-            href="/auth/login"
+            href={getApiUrl('/auth/login')}
             className="flex items-center justify-center gap-3 w-full py-3 px-5 bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm rounded-xl shadow-sm hover:shadow transition-all group"
           >
             {/* Google G Logo SVG */}

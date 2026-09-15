@@ -210,13 +210,26 @@ export interface GeoReverseResponse {
   cardinal_coords: string;
 }
 
+// ── Base URL configuration ──────────────────────────────────────────────────
+/**
+ * Base URL for the ThreatLens backend API.
+ * Defaults to empty string (same-origin / local proxy).
+ * In production (e.g. Vercel frontend + Render backend), set VITE_API_BASE_URL in Vercel.
+ */
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+
+export function getApiUrl(path: string): string {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return API_BASE_URL ? `${API_BASE_URL}${cleanPath}` : cleanPath;
+}
+
 // ── CSRF token management ──────────────────────────────────────────────────
 // Fetched once per session; attached as X-CSRF-Token on all mutating requests.
 let _csrfToken: string | null = null;
 
 async function getCsrfToken(): Promise<string> {
   if (_csrfToken) return _csrfToken;
-  const response = await fetch('/api/csrf-token', { credentials: 'include' });
+  const response = await fetch(getApiUrl('/api/csrf-token'), { credentials: 'include' });
   if (!response.ok) throw new Error('Failed to fetch CSRF token');
   const data = await response.json();
   _csrfToken = data.csrf_token as string;
@@ -242,7 +255,8 @@ async function apiFetch<T>(
     extraHeaders['X-CSRF-Token'] = await getCsrfToken();
   }
 
-  const response = await fetch(path, {
+  const fullUrl = getApiUrl(path);
+  const response = await fetch(fullUrl, {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
