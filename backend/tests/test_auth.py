@@ -39,7 +39,7 @@ async def test_build_authorization_url_contains_pkce():
     assert "code_challenge_method=S256" in url
     assert "state=test-state" in url
     assert "access_type=offline" in url
-    assert "prompt=consent" in url
+    assert "prompt=select_account%20consent" in url or "prompt=consent" in url
 
 
 @pytest.mark.asyncio

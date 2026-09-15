@@ -9,6 +9,7 @@ import hashlib
 import os
 import base64
 from typing import Any, Optional
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -45,9 +46,9 @@ def build_authorization_url(state: str, code_challenge: str, redirect_uri: Optio
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
         "access_type": "offline",   # Request refresh token
-        "prompt": "consent",        # Always show consent to ensure refresh token
+        "prompt": "select_account consent",  # Prompt account picker & consent
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
+    query = urlencode(params, quote_via=quote)
     return f"{GOOGLE_AUTH_URL}?{query}"
 
 
