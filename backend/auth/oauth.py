@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import os
 import base64
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -33,12 +33,12 @@ def generate_pkce_pair() -> tuple[str, str]:
     return code_verifier, code_challenge
 
 
-def build_authorization_url(state: str, code_challenge: str) -> str:
+def build_authorization_url(state: str, code_challenge: str, redirect_uri: Optional[str] = None) -> str:
     """Build the Google OAuth2 authorization URL with PKCE."""
     settings = get_settings()
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
-        "redirect_uri": settings.OAUTH_REDIRECT_URI,
+        "redirect_uri": redirect_uri or settings.OAUTH_REDIRECT_URI,
         "response_type": "code",
         "scope": settings.OAUTH_SCOPES,
         "state": state,
@@ -52,13 +52,14 @@ def build_authorization_url(state: str, code_challenge: str) -> str:
 
 
 async def exchange_code_for_tokens(
-    code: str, code_verifier: str
+    code: str, code_verifier: str, redirect_uri: Optional[str] = None
 ) -> dict[str, Any]:
     """Exchange authorization code for access + refresh tokens (server-side).
 
     Args:
         code: Authorization code from Google callback
         code_verifier: PKCE verifier matching the challenge sent
+        redirect_uri: Optional redirect URI matching the one sent in auth request
 
     Returns:
         Token response dict from Google
@@ -74,7 +75,7 @@ async def exchange_code_for_tokens(
                 "code": code,
                 "client_id": settings.GOOGLE_CLIENT_ID,
                 "client_secret": settings.GOOGLE_CLIENT_SECRET,
-                "redirect_uri": settings.OAUTH_REDIRECT_URI,
+                "redirect_uri": redirect_uri or settings.OAUTH_REDIRECT_URI,
                 "grant_type": "authorization_code",
                 "code_verifier": code_verifier,
             },

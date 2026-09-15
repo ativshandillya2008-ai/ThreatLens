@@ -13,6 +13,7 @@ import secrets
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from ..config import get_settings
 from .oauth import (
     build_authorization_url,
     exchange_code_for_tokens,
@@ -33,15 +34,25 @@ async def login(request: Request) -> RedirectResponse:
     Stores the code_verifier and state in the server-side session.
     Redirects the browser to Google's consent screen.
     """
+    settings = get_settings()
     code_verifier, code_challenge = generate_pkce_pair()
     state = secrets.token_urlsafe(32)
+
+    # Automatically detect redirect_uri based on current request host & scheme
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+    if host and ("trycloudflare.com" in host or "127.0.0.1" in host or "localhost" in host):
+        redirect_uri = f"{scheme}://{host}/auth/callback"
+    else:
+        redirect_uri = settings.OAUTH_REDIRECT_URI
 
     # Store in server-side session (signed cookie)
     request.session["oauth_state"] = state
     request.session["oauth_code_verifier"] = code_verifier
+    request.session["oauth_redirect_uri"] = redirect_uri
 
-    auth_url = build_authorization_url(state=state, code_challenge=code_challenge)
-    logger.info("Initiating OAuth flow, state=%s", state[:8] + "...")
+    auth_url = build_authorization_url(state=state, code_challenge=code_challenge, redirect_uri=redirect_uri)
+    logger.info("Initiating OAuth flow, state=%s, redirect_uri=%s", state[:8] + "...", redirect_uri)
     return RedirectResponse(url=auth_url)
 
 
@@ -78,12 +89,14 @@ async def callback(request: Request) -> RedirectResponse:
     if not code_verifier:
         raise HTTPException(status_code=400, detail="Missing PKCE code_verifier in session")
 
+    redirect_uri = request.session.pop("oauth_redirect_uri", None)
+
     # Clear PKCE state from session
     request.session.pop("oauth_state", None)
     request.session.pop("oauth_code_verifier", None)
 
     try:
-        token_response = await exchange_code_for_tokens(code, code_verifier)
+        token_response = await exchange_code_for_tokens(code, code_verifier, redirect_uri=redirect_uri)
     except Exception as exc:
         logger.error("Token exchange failed: %s", exc)
         return _frontend_redirect("/?error=token_exchange_failed")

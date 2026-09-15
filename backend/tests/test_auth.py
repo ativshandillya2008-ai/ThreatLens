@@ -106,3 +106,20 @@ async def test_token_exchange_sends_code_verifier():
     assert captured_data.get("code_verifier") == "my-verifier"
     assert captured_data.get("grant_type") == "authorization_code"
     assert result["access_token"] == "access-123"
+
+
+@pytest.mark.asyncio
+async def test_login_endpoint_redirects_to_google():
+    """GET /auth/login must set session PKCE and redirect to Google OAuth URL."""
+    from backend.auth.router import login
+
+    request = MagicMock()
+    request.session = {}
+    request.headers = {}
+    request.url = MagicMock(scheme="https", netloc="test.trycloudflare.com")
+
+    response = await login(request)
+    assert response.status_code == 307
+    assert "accounts.google.com" in response.headers["location"]
+    assert "oauth_state" in request.session
+    assert "oauth_code_verifier" in request.session
