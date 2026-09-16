@@ -166,7 +166,11 @@ export default function InboxPage({ user, onLogout, initialCategory = 'inbox' }:
   const handleTriggerScan = async () => {
     setIsScanning(true)
     try {
-      await api.gmail.scan(25)
+      if (activeCategory === 'spam') {
+        await api.gmail.scan(25, 'in:spam', true)
+      } else {
+        await api.gmail.scan(25, submittedQuery || 'in:inbox', false)
+      }
       await fetchPage(currentPageRef.current, false)
     } catch (e) {
       console.error('Scan trigger error:', e)
@@ -370,8 +374,8 @@ export default function InboxPage({ user, onLogout, initialCategory = 'inbox' }:
             {[
               { id: '', label: activeCategory === 'spam' ? 'All Spam Messages' : 'All Messages' },
               { id: 'HIGH', label: 'High Threats', color: 'text-rose-700 bg-rose-50 border-rose-200' },
-              { id: 'MEDIUM', label: 'Suspicious', color: 'text-amber-700 bg-amber-50 border-amber-200' },
-              { id: 'LOW', label: 'Safe', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+              { id: 'MEDIUM', label: activeCategory === 'spam' ? 'Suspicious' : 'Suspicious', color: 'text-amber-700 bg-amber-50 border-amber-200' },
+              { id: 'LOW', label: activeCategory === 'spam' ? 'Low Risk' : 'Safe', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
             ].map(pill => {
               const active = severityFilter === pill.id
               return (

@@ -39,6 +39,8 @@ async def run_pipeline(
     user_email: str,
     message_id: str,
     raw_bytes: Optional[bytes] = None,
+    label_ids: Optional[list[str]] = None,
+    force_rescore: bool = False,
 ) -> Any:
     """Run the full threat scoring pipeline for a Gmail message.
 
@@ -46,10 +48,13 @@ async def run_pipeline(
         user_email: The Gmail account owner
         message_id: Gmail message ID
         raw_bytes: Optional pre-fetched raw RFC2822 bytes
+        label_ids: Optional Gmail label IDs (e.g. ['SPAM', 'UNREAD'])
+        force_rescore: If True, re-analyze even if already analyzed
 
     Returns:
-        The created ThreatScore DB record, or None if skipped/failed
+        The created or updated ThreatScore DB record, or None if skipped/failed
     """
+    import base64
     from ..threats.models import ThreatScore
     from ..threats.quarantine import ensure_quarantine_label, quarantine_message
     from ..gmail.client import GmailClient
@@ -62,6 +67,7 @@ async def run_pipeline(
 
     # ── 1. Check if already analyzed ────────────────────────────────────────
     factory = get_session_factory()
+    existing_record = None
     async with factory() as session:
         from sqlalchemy import select
         existing = await session.execute(
@@ -70,18 +76,36 @@ async def run_pipeline(
                 ThreatScore.user_email == user_email,
             )
         )
-        if existing.scalar_one_or_none():
-            logger.info("Message %s already analyzed, skipping", message_id)
-            return None
+        existing_record = existing.scalars().first()
+        if existing_record and not force_rescore:
+            # Check if this was a degraded scan (0.0 with empty reasoning from rate limits)
+            is_degraded = (
+                existing_record.final_score == 0.0
+                and (not existing_record.llm_reasoning or existing_record.llm_reasoning in ('[]', 'null', ''))
+            )
+            if not is_degraded:
+                logger.info("Message %s already analyzed, skipping", message_id)
+                return existing_record
+            logger.info("Message %s has degraded/empty 0.0 score, re-analyzing", message_id)
 
-    # ── 2. Fetch raw message ─────────────────────────────────────────────────
-    if raw_bytes is None:
+    # ── 2. Fetch raw message and labels ───────────────────────────────────────
+    if raw_bytes is None or label_ids is None:
         try:
             async with GmailClient(user_email) as client:
-                raw_bytes = await client.get_raw_message(message_id)
+                if raw_bytes is None:
+                    raw_data = await client._request("GET", f"/messages/{message_id}", params={"format": "raw"})
+                    raw_b64 = raw_data.get("raw", "")
+                    padded = raw_b64 + "==" * ((-len(raw_b64)) % 4)
+                    raw_bytes = base64.urlsafe_b64decode(padded)
+                    if label_ids is None:
+                        label_ids = raw_data.get("labelIds", [])
+                elif label_ids is None:
+                    meta = await client.get_message(message_id, format="minimal")
+                    label_ids = meta.get("labelIds", [])
         except Exception as exc:
-            logger.error("Failed to fetch raw message %s: %s", message_id, exc)
-            return None
+            logger.error("Failed to fetch message %s: %s", message_id, exc)
+            if raw_bytes is None:
+                return None
 
     msg: Message = email.message_from_bytes(raw_bytes)
 
@@ -121,6 +145,9 @@ async def run_pipeline(
         + url_result.score * settings.WEIGHT_SAFE_BROWSING
     )
 
+    # Check if message is classified as SPAM by Gmail
+    is_spam_quarantined = bool(label_ids and any(l.upper() in ("SPAM", "TRASH") for l in label_ids))
+
     # Dominant threat escalation: a high-confidence threat in any individual vector
     # (LLM phishing/malware detection, malicious URLs, or severe spoofing) must not be
     # diluted below critical thresholds by zero scores in other vectors.
@@ -138,13 +165,27 @@ async def run_pipeline(
         # AI moderate threat / suspicious indicators / auth failure -> MEDIUM
         escalated_score = max(escalated_score, max(0.45, llm_result.score * 0.8))
 
+    final_reasoning = list(llm_result.reasoning)
+
+    # Gmail SPAM integration: An email placed in Gmail's Spam vault has already been
+    # flagged by Google's anti-abuse filters. It must NEVER be classified as Safe (LOW).
+    if is_spam_quarantined:
+        if escalated_score >= 0.70:
+            escalated_score = max(escalated_score, 0.80)
+        else:
+            escalated_score = max(escalated_score, 0.50)
+
+        spam_note = "Isolated in Gmail Spam & Abuse Quarantine (SPAM label present)."
+        if spam_note not in final_reasoning:
+            final_reasoning.insert(0, spam_note)
+
     final_score = round(min(escalated_score, 1.0), 4)
     severity = _compute_severity(final_score)
 
     logger.info(
-        "Pipeline result: message=%s score=%.4f severity=%s "
+        "Pipeline result: message=%s score=%.4f severity=%s (is_spam=%s) "
         "(auth=%.2f geo=%.2f llm=%.2f url=%.2f)",
-        message_id, final_score, severity,
+        message_id, final_score, severity, is_spam_quarantined,
         auth_result.score, geo_result.score, llm_result.score, url_result.score,
     )
 
@@ -156,51 +197,100 @@ async def run_pipeline(
     except Exception as exc:
         logger.warning("Failed to encrypt raw headers: %s", exc)
 
-    # ── 6. Write append-only audit record ────────────────────────────────────
+    # ── 6. Write or update append-only audit record ───────────────────────────
     analyzed_at = datetime.now(timezone.utc)
-    quarantined = severity in ("MEDIUM", "HIGH")
+    quarantined = severity in ("MEDIUM", "HIGH") or is_spam_quarantined
 
-    record = ThreatScore(
-        user_email=user_email,
-        message_id=message_id,
-        subject=subject,
-        sender=sender,
-        received_at=received_at,
-        analyzed_at=analyzed_at,
-        spf_result=auth_result.spf,
-        dkim_result=auth_result.dkim,
-        dmarc_result=auth_result.dmarc,
-        auth_score=auth_result.score,
-        geo_country=geo_result.primary_country,
-        geo_asn=geo_result.primary_asn,
-        geo_org=geo_result.primary_org,
-        geo_lat=geo_result.primary_lat,
-        geo_lon=geo_result.primary_lon,
-        geo_mismatch=geo_result.geo_mismatch,
-        geo_score=geo_result.score,
-        geo_hops=json.dumps(geo_result.geo_hops),
-        llm_score=llm_result.score,
-        llm_threat_type=llm_result.threat_type,
-        llm_reasoning=json.dumps(llm_result.reasoning),
-        llm_suspicious_phrases=json.dumps(llm_result.suspicious_phrases),
-        urls_checked=json.dumps(url_result.urls_checked),
-        unsafe_urls=json.dumps(url_result.unsafe_urls),
-        url_score=url_result.score,
-        final_score=final_score,
-        severity=severity,
-        quarantined=quarantined,
-        raw_headers_encrypted=raw_headers,
-        detected_language=llm_result.detected_language,
-        language_code=llm_result.language_code,
-    )
+    from sqlalchemy import select, update
 
     async with factory() as session:
-        session.add(record)
-        await session.commit()
-        await session.refresh(record)
+        if existing_record:
+            await session.execute(
+                update(ThreatScore)
+                .where(
+                    ThreatScore.message_id == message_id,
+                    ThreatScore.user_email == user_email,
+                )
+                .values(
+                    subject=subject,
+                    sender=sender,
+                    received_at=received_at,
+                    analyzed_at=analyzed_at,
+                    spf_result=auth_result.spf,
+                    dkim_result=auth_result.dkim,
+                    dmarc_result=auth_result.dmarc,
+                    auth_score=auth_result.score,
+                    geo_country=geo_result.primary_country,
+                    geo_asn=geo_result.primary_asn,
+                    geo_org=geo_result.primary_org,
+                    geo_lat=geo_result.primary_lat,
+                    geo_lon=geo_result.primary_lon,
+                    geo_mismatch=geo_result.geo_mismatch,
+                    geo_score=geo_result.score,
+                    geo_hops=json.dumps(geo_result.geo_hops),
+                    llm_score=llm_result.score,
+                    llm_threat_type=llm_result.threat_type,
+                    llm_reasoning=json.dumps(final_reasoning),
+                    llm_suspicious_phrases=json.dumps(llm_result.suspicious_phrases),
+                    urls_checked=json.dumps(url_result.urls_checked),
+                    unsafe_urls=json.dumps(url_result.unsafe_urls),
+                    url_score=url_result.score,
+                    final_score=final_score,
+                    severity=severity,
+                    quarantined=quarantined,
+                    raw_headers_encrypted=raw_headers,
+                    detected_language=llm_result.detected_language,
+                    language_code=llm_result.language_code,
+                )
+            )
+            await session.commit()
+            refreshed = await session.execute(
+                select(ThreatScore).where(
+                    ThreatScore.message_id == message_id,
+                    ThreatScore.user_email == user_email,
+                )
+            )
+            record = refreshed.scalars().first()
+        else:
+            record = ThreatScore(
+                user_email=user_email,
+                message_id=message_id,
+                subject=subject,
+                sender=sender,
+                received_at=received_at,
+                analyzed_at=analyzed_at,
+                spf_result=auth_result.spf,
+                dkim_result=auth_result.dkim,
+                dmarc_result=auth_result.dmarc,
+                auth_score=auth_result.score,
+                geo_country=geo_result.primary_country,
+                geo_asn=geo_result.primary_asn,
+                geo_org=geo_result.primary_org,
+                geo_lat=geo_result.primary_lat,
+                geo_lon=geo_result.primary_lon,
+                geo_mismatch=geo_result.geo_mismatch,
+                geo_score=geo_result.score,
+                geo_hops=json.dumps(geo_result.geo_hops),
+                llm_score=llm_result.score,
+                llm_threat_type=llm_result.threat_type,
+                llm_reasoning=json.dumps(final_reasoning),
+                llm_suspicious_phrases=json.dumps(llm_result.suspicious_phrases),
+                urls_checked=json.dumps(url_result.urls_checked),
+                unsafe_urls=json.dumps(url_result.unsafe_urls),
+                url_score=url_result.score,
+                final_score=final_score,
+                severity=severity,
+                quarantined=quarantined,
+                raw_headers_encrypted=raw_headers,
+                detected_language=llm_result.detected_language,
+                language_code=llm_result.language_code,
+            )
+            session.add(record)
+            await session.commit()
+            await session.refresh(record)
 
     # ── 7. Apply quarantine label if needed ──────────────────────────────────
-    if quarantined:
+    if quarantined and not is_spam_quarantined:
         try:
             await ensure_quarantine_label(user_email)
             await quarantine_message(user_email, message_id)

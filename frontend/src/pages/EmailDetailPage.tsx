@@ -144,7 +144,12 @@ export default function EmailDetailPage({ user }: Props) {
             </button>
 
             {threat && (
-              <ThreatBadge severity={threat.severity} score={threat.final_score} size="md" />
+              <ThreatBadge
+                severity={threat.severity}
+                score={threat.final_score}
+                size="md"
+                isSpam={Boolean(((msg?.labelIds as string[]) ?? []).includes('SPAM'))}
+              />
             )}
             <button
               onClick={fetchDetail}

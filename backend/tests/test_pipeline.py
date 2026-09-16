@@ -208,3 +208,73 @@ def test_severity_thresholds():
         assert _compute_severity(0.70) == "HIGH"
         assert _compute_severity(0.40) == "MEDIUM"
         assert _compute_severity(0.39) == "LOW"
+
+
+def test_heuristic_fallback_lottery_scam():
+    """Verify heuristic fallback catches lottery scam lures when LLM is unavailable."""
+    from backend.pipeline.llm_analyzer import _heuristic_fallback_analysis
+    from backend.pipeline.language_detector import detect_indian_language_hint
+
+    hint = detect_indian_language_hint("Lottery")
+    res = _heuristic_fallback_analysis(
+        from_header="HG Gaming <harshmehta8791@gmail.com>",
+        subject="(no subject)",
+        body="Dear Winner, Congratulations! You have won ₹10,00,000 and a Bugatti in the Lottery.",
+        lang_hint=hint,
+        error_reason="429 Rate limit",
+    )
+    assert res.score >= 0.80
+    assert res.threat_type == "phishing"
+    assert any("lottery" in r.lower() or "prize" in r.lower() for r in res.reasoning)
+    assert res.available is False
+
+
+@pytest.mark.asyncio
+async def test_spam_label_escalation(benign_msg, monkeypatch):
+    """An email located in the SPAM folder must never receive a Safe (LOW) verdict."""
+    from backend.pipeline.runner import run_pipeline
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    # Mock database session
+    mock_session = AsyncMock()
+    mock_existing = MagicMock()
+    mock_existing.scalars.return_value.first.return_value = None
+    mock_session.execute.return_value = mock_existing
+
+    mock_cm = MagicMock()
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_cm.__aexit__ = AsyncMock(return_value=None)
+    mock_factory = MagicMock(return_value=mock_cm)
+
+    raw_bytes = benign_msg.as_bytes()
+
+    with patch("backend.pipeline.runner.get_session_factory", return_value=mock_factory):
+        with patch("backend.pipeline.runner.score_spf_dkim_dmarc") as mock_auth, \
+             patch("backend.pipeline.runner.score_geoip") as mock_geo, \
+             patch("backend.pipeline.runner.score_llm") as mock_llm, \
+             patch("backend.pipeline.runner.score_safe_browsing") as mock_url:
+
+            from backend.pipeline.spf_dkim_dmarc import AuthResult
+            from backend.pipeline.geoip import GeoResult
+            from backend.pipeline.llm_analyzer import LLMResult
+            from backend.pipeline.safe_browsing import SafeBrowsingResult
+
+            mock_auth.return_value = AuthResult(score=0.0, spf="pass", dkim="pass", dmarc="pass")
+            mock_geo.return_value = GeoResult(score=0.0, primary_country="US", primary_asn="123", primary_org="Google", primary_lat=0, primary_lon=0, geo_mismatch=False, geo_hops=[])
+            mock_llm.return_value = LLMResult(score=0.0, threat_type="legitimate", reasoning=["Benign content"])
+            mock_url.return_value = SafeBrowsingResult(score=0.0, urls_checked=[], unsafe_urls={})
+
+            record = await run_pipeline(
+                user_email="test@example.com",
+                message_id="spam123",
+                raw_bytes=raw_bytes,
+                label_ids=["SPAM", "UNREAD"],
+            )
+
+            assert record is not None
+            # Must be escalated due to SPAM quarantine
+            assert record.final_score >= 0.50
+            assert record.severity in ("MEDIUM", "HIGH")
+            assert record.quarantined is True
+            assert "SPAM" in record.llm_reasoning
+

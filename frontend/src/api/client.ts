@@ -307,14 +307,19 @@ export const api = {
         `/api/gmail/messages/${id}`
       ),
     setupWatch: () => apiFetch<WatchSetupResponse>('/api/gmail/setup-watch'),
-    scan: (maxResults: number = 25) =>
-      apiFetch<{
+    scan: (maxResults: number = 25, q: string = '', includeSpamTrash: boolean = false) => {
+      const qs = new URLSearchParams();
+      qs.set('max_results', String(maxResults));
+      if (q) qs.set('q', q);
+      if (includeSpamTrash) qs.set('include_spam_trash', 'true');
+      return apiFetch<{
         status: string;
         queued: number;
         unscored_count: number;
         already_scored: number;
         total: number;
-      }>(`/api/gmail/scan?max_results=${maxResults}`, { method: 'POST' }),
+      }>(`/api/gmail/scan?${qs}`, { method: 'POST' });
+    },
     scanStatus: () =>
       apiFetch<{ scanning: boolean; active_count: number }>('/api/gmail/scan-status'),
   },

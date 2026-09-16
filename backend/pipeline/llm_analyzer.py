@@ -159,10 +159,109 @@ def _parse_llm_response(response_text: str) -> dict[str, Any]:
     }
 
 
+def _heuristic_fallback_analysis(
+    from_header: str,
+    subject: str,
+    body: str,
+    lang_hint: Any,
+    error_reason: str,
+) -> LLMResult:
+    """Rule-based heuristic fallback if Gemini LLM is unavailable or rate-limited.
+
+    Prevents critical scams and phishing emails from being silently marked as Safe (0.0).
+    """
+    text = f"{subject} {body}".lower()
+
+    # 1. High-confidence lottery / prize / advance-fee scam lures
+    lottery_patterns = [
+        r'\blottery\b', r'\blaatri\b', r'ਲਾਟਰੀ', r'लॉटरी', r'লটারি',
+        r'\bprize\s+award\b', r'\bwon\b.*\b(crore|lakh|₹|\$)\b',
+        r'₹\s*10[,0-9]+', r'\bbugatti\b', r'\bwinner\s+id\b',
+        r'\bcongratulations.*selected\b', r'\bclaim\s+your\s+prize\b',
+        r'\bunclaimed\s+(prize|funds|lottery)\b', r'\blucky\s+draw\b'
+    ]
+    is_lottery = any(re.search(pat, text, re.IGNORECASE) for pat in lottery_patterns)
+
+    # 2. Banking / KYC / PAN-Aadhaar / deactivation lures
+    kyc_patterns = [
+        r'\bkyc\b.*(deactivat|block|suspend|update)',
+        r'pan.*aadhaar.*link',
+        r'bijli\s+vibhag.*disconnect',
+        r'electricity\s+bill.*(power\s+cut|disconnection)',
+        r'account.*(suspended|blocked).*urgent',
+        r'income\s+tax\s+refund.*(claim|approved)',
+    ]
+    is_kyc = any(re.search(pat, text, re.IGNORECASE) for pat in kyc_patterns)
+
+    is_free_mailer = any(domain in from_header.lower() for domain in ['@gmail.com', '@yahoo.com', '@hotmail.com', '@outlook.com'])
+
+    if is_lottery:
+        reasoning = [
+            "Content matches high-confidence lottery/prize advance-fee scam lures (e.g. prize notification, cash award or sweepstake hook).",
+            "Sent from personal or unverified email address inconsistent with official prize or lottery operators." if is_free_mailer else "Automated heuristic detection flagged prize lure pattern.",
+            f"Heuristic safety engine applied (AI engine fallback: {error_reason[:60]}).",
+        ]
+        matched_phrases = [p for p in ["Lottery", "Prize Award", "Bugatti", "Winner", "₹10,00,000", "ਲਾਟਰੀ"] if p.lower() in text]
+        return LLMResult(
+            score=0.85,
+            threat_type="phishing",
+            reasoning=reasoning,
+            suspicious_phrases=matched_phrases or ["Lottery lure detected"],
+            detected_language=lang_hint.likely_language,
+            language_code=lang_hint.language_code,
+            is_indian_language=lang_hint.is_indian_native,
+            available=False,
+            evidence={"fallback": "heuristic_lottery_scam", "error": error_reason},
+        )
+
+    if is_kyc:
+        reasoning = [
+            "Content matches urgency-based credential or account deactivation / KYC phishing patterns.",
+            f"Heuristic safety engine applied (AI engine fallback: {error_reason[:60]}).",
+        ]
+        return LLMResult(
+            score=0.85,
+            threat_type="phishing",
+            reasoning=reasoning,
+            suspicious_phrases=["KYC / Urgent Account Alert"],
+            detected_language=lang_hint.likely_language,
+            language_code=lang_hint.language_code,
+            is_indian_language=lang_hint.is_indian_native,
+            available=False,
+            evidence={"fallback": "heuristic_kyc_phishing", "error": error_reason},
+        )
+
+    if (not subject.strip() or subject.strip() == "(no subject)") and len(body.strip().split()) <= 2:
+        return LLMResult(
+            score=0.45,
+            threat_type="suspicious",
+            reasoning=[
+                "Email has no subject line and an ultra-brief body, typical of email address reconnaissance or probe attempts.",
+                f"Heuristic fallback applied (AI engine fallback: {error_reason[:60]}).",
+            ],
+            detected_language=lang_hint.likely_language,
+            language_code=lang_hint.language_code,
+            is_indian_language=lang_hint.is_indian_native,
+            available=False,
+            evidence={"fallback": "heuristic_probe", "error": error_reason},
+        )
+
+    return LLMResult(
+        score=0.0,
+        threat_type="unknown",
+        reasoning=[],
+        detected_language=lang_hint.likely_language,
+        language_code=lang_hint.language_code,
+        is_indian_language=lang_hint.is_indian_native,
+        available=False,
+        evidence={"error": error_reason},
+    )
+
+
 async def score_llm(msg: Message) -> LLMResult:
     """Run LLM-based content analysis on the email.
 
-    Fail-open: returns score=0.0 if LLM is unavailable.
+    Fail-safe: applies heuristic rule engine if LLM is unavailable or quota-limited.
     """
     settings = get_settings()
 
@@ -209,14 +308,15 @@ async def score_llm(msg: Message) -> LLMResult:
         body=body,
     )
 
+    import asyncio
+
     try:
         import google.generativeai as genai
-        import asyncio
 
         genai.configure(api_key=settings.GEMINI_API_KEY)
         configured_model = getattr(settings, "GEMINI_MODEL", "gemini-flash-latest") or "gemini-flash-latest"
         candidate_models = [configured_model]
-        for fallback in ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.7-flash"]:
+        for fallback in ["gemini-flash-latest", "gemini-2.0-flash", "gemini-1.5-flash"]:
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
 
@@ -225,24 +325,34 @@ async def score_llm(msg: Message) -> LLMResult:
         loop = asyncio.get_event_loop()
 
         for m_name in candidate_models:
-            try:
-                model = genai.GenerativeModel(
-                    m_name,
-                    generation_config=genai.GenerationConfig(
-                        temperature=0.1,
-                        max_output_tokens=2048,
-                        response_mime_type="application/json",
-                    ),
-                )
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: model.generate_content(prompt),
-                )
-                if response and response.text:
-                    break
-            except Exception as exc:
-                last_error = exc
-                logger.warning("Gemini model %s failed: %s, trying fallback", m_name, exc)
+            for retry_attempt in range(2):
+                try:
+                    model = genai.GenerativeModel(
+                        m_name,
+                        generation_config=genai.GenerationConfig(
+                            temperature=0.1,
+                            max_output_tokens=2048,
+                            response_mime_type="application/json",
+                        ),
+                    )
+                    response = await loop.run_in_executor(
+                        None,
+                        lambda: model.generate_content(prompt),
+                    )
+                    if response and response.text:
+                        break
+                except Exception as exc:
+                    last_error = exc
+                    err_str = str(exc)
+                    if "429" in err_str or "ResourceExhausted" in err_str or "quota" in err_str.lower():
+                        logger.warning("Gemini 429 quota on %s (attempt %d): %s", m_name, retry_attempt, exc)
+                        await asyncio.sleep(1.5 * (retry_attempt + 1))
+                    else:
+                        logger.warning("Gemini model %s failed: %s, trying fallback", m_name, exc)
+                        break
+
+            if response and response.text:
+                break
 
         if not response or not response.text:
             raise last_error or RuntimeError("All Gemini candidate models failed")
@@ -280,23 +390,20 @@ async def score_llm(msg: Message) -> LLMResult:
 
     except json.JSONDecodeError as exc:
         logger.error("LLM returned invalid JSON: %s", exc)
-        return LLMResult(
-            score=0.0,
-            threat_type="unknown",
-            detected_language=lang_hint.likely_language,
-            language_code=lang_hint.language_code,
-            is_indian_language=lang_hint.is_indian_native,
-            available=True,
-            evidence={"error": "JSON parse failure", "detail": str(exc)},
+        return _heuristic_fallback_analysis(
+            from_header=from_header,
+            subject=subject,
+            body=body,
+            lang_hint=lang_hint,
+            error_reason=f"JSON parse failure: {exc}",
         )
     except Exception as exc:
         logger.error("LLM analysis failed: %s", exc)
-        return LLMResult(
-            score=0.0,
-            threat_type="unknown",
-            detected_language=lang_hint.likely_language if 'lang_hint' in locals() else "English",
-            language_code=lang_hint.language_code if 'lang_hint' in locals() else "en",
-            is_indian_language=lang_hint.is_indian_native if 'lang_hint' in locals() else False,
-            available=False,
-            evidence={"error": str(exc)},
+        return _heuristic_fallback_analysis(
+            from_header=from_header,
+            subject=subject,
+            body=body,
+            lang_hint=lang_hint,
+            error_reason=str(exc),
         )
+

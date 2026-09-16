@@ -108,12 +108,16 @@ async def list_messages(
         )
         score_records = {r.message_id: r for r in result.scalars().all()}
 
-    # Trigger background scan for any unscored messages
-    unscored_ids = [mid for mid in message_ids if mid not in score_records]
+    # Trigger background scan for any unscored messages or degraded (0.0 with empty reasoning) messages
+    degraded_ids = [
+        mid for mid, rec in score_records.items()
+        if rec.final_score == 0.0 and (not rec.llm_reasoning or rec.llm_reasoning in ('[]', 'null', ''))
+    ]
+    unscored_ids = [mid for mid in message_ids if mid not in score_records] + degraded_ids
     if auto_scan and unscored_ids:
         to_queue = [mid for mid in unscored_ids if (user_email, mid) not in _scanning_ids]
         if to_queue:
-            logger.info("Queuing background scan for %d unscored messages", len(to_queue))
+            logger.info("Queuing background scan for %d unscored/degraded messages", len(to_queue))
             background_tasks.add_task(_scan_unscored_batch, user_email, to_queue)
 
     is_currently_scanning = any((user_email, mid) in _scanning_ids for mid in message_ids) or bool(unscored_ids and auto_scan)
@@ -128,7 +132,20 @@ async def list_messages(
                 for h in full.get("payload", {}).get("headers", []):
                     headers[h["name"].lower()] = h["value"]
 
+                label_ids = full.get("labelIds", [])
+                is_spam = "SPAM" in [l.upper() for l in label_ids]
+
                 score_record = score_records.get(msg["id"])
+                threat_score = score_record.final_score if score_record else None
+                threat_severity = score_record.severity if score_record else None
+
+                # Emails in the Spam vault are quarantined; they must never show as Safe
+                if is_spam:
+                    if threat_score is not None and threat_score < 0.50:
+                        threat_score = 0.50
+                    if threat_severity is None or threat_severity == "LOW":
+                        threat_severity = "MEDIUM"
+
                 enriched.append({
                     "id": msg["id"],
                     "threadId": msg.get("threadId"),
@@ -136,10 +153,10 @@ async def list_messages(
                     "from": headers.get("from", ""),
                     "date": headers.get("date", ""),
                     "snippet": full.get("snippet", ""),
-                    "labelIds": full.get("labelIds", []),
+                    "labelIds": label_ids,
                     "threat": {
-                        "score": score_record.final_score if score_record else None,
-                        "severity": score_record.severity if score_record else None,
+                        "score": threat_score,
+                        "severity": threat_severity,
                         "analyzed": score_record is not None,
                         "threat_id": str(score_record.id) if score_record else None,
                         "geo_lat": score_record.geo_lat if score_record else None,
@@ -190,12 +207,21 @@ async def get_message(request: Request, message_id: str) -> JSONResponse:
         )
         score_record = result.scalars().first()
 
-    # If message has never been scored, run the pipeline on-demand now
-    if not score_record:
+    # If message has never been scored or was degraded (0.0 with empty reasoning), run pipeline
+    is_degraded = bool(
+        score_record and score_record.final_score == 0.0
+        and (not score_record.llm_reasoning or score_record.llm_reasoning in ('[]', 'null', ''))
+    )
+    if not score_record or is_degraded:
         try:
             from ..pipeline.runner import run_pipeline
-            logger.info("On-demand scan triggered for message %s", message_id)
-            score_record = await run_pipeline(user_email=user_email, message_id=message_id)
+            logger.info("On-demand scan triggered for message %s (degraded=%s)", message_id, is_degraded)
+            score_record = await run_pipeline(
+                user_email=user_email,
+                message_id=message_id,
+                label_ids=data.get("labelIds", []),
+                force_rescore=is_degraded,
+            )
         except Exception as exc:
             logger.error("On-demand scan failed for %s: %s", message_id, exc)
 
@@ -203,13 +229,24 @@ async def get_message(request: Request, message_id: str) -> JSONResponse:
     if score_record:
         import json
         hops = json.loads(score_record.geo_hops) if score_record.geo_hops else []
+        label_ids = data.get("labelIds", [])
+        is_spam = "SPAM" in [l.upper() for l in label_ids]
+
+        final_score = score_record.final_score
+        severity = score_record.severity
+        if is_spam:
+            if final_score < 0.50:
+                final_score = 0.50
+            if severity == "LOW":
+                severity = "MEDIUM"
+
         threat_data = {
             "id": str(score_record.id),
             "message_id": score_record.message_id,
             "subject": score_record.subject,
             "sender": score_record.sender,
-            "final_score": score_record.final_score,
-            "severity": score_record.severity,
+            "final_score": final_score,
+            "severity": severity,
             "spf": score_record.spf_result,
             "dkim": score_record.dkim_result,
             "dmarc": score_record.dmarc_result,
@@ -232,7 +269,7 @@ async def get_message(request: Request, message_id: str) -> JSONResponse:
             "urls_checked": json.loads(score_record.urls_checked) if score_record.urls_checked else [],
             "unsafe_urls": json.loads(score_record.unsafe_urls) if score_record.unsafe_urls else {},
             "url_score": score_record.url_score,
-            "quarantined": score_record.quarantined,
+            "quarantined": score_record.quarantined or is_spam,
             "detected_language": getattr(score_record, "detected_language", None),
             "language_code": getattr(score_record, "language_code", None),
             "analyzed_at": score_record.analyzed_at.isoformat() if score_record.analyzed_at else None,
@@ -242,16 +279,22 @@ async def get_message(request: Request, message_id: str) -> JSONResponse:
 
 
 @router.post("/scan")
-async def scan_inbox_messages(
+async def scan_messages(
     request: Request,
     background_tasks: BackgroundTasks,
     max_results: int = Query(default=25, le=100),
+    q: str = Query(default="", description="Gmail search query, e.g. in:spam"),
+    include_spam_trash: bool = Query(default=False, description="Include spam and trash"),
 ) -> JSONResponse:
-    """Explicitly trigger AI threat scanning for unscored inbox messages."""
+    """Explicitly trigger AI threat scanning for unscored or degraded messages."""
     user_email = _require_auth(request)
 
     async with GmailClient(user_email) as client:
-        data = await client.list_messages(max_results=max_results)
+        data = await client.list_messages(
+            query=q,
+            max_results=max_results,
+            include_spam_trash=include_spam_trash or ("in:spam" in q.lower() or "is:spam" in q.lower()),
+        )
 
     messages = data.get("messages", [])
     if not messages:
@@ -262,24 +305,29 @@ async def scan_inbox_messages(
     factory = get_session_factory()
     async with factory() as session:
         result = await session.execute(
-            select(ThreatScore.message_id).where(
+            select(ThreatScore).where(
                 ThreatScore.message_id.in_(message_ids),
                 ThreatScore.user_email == user_email,
             )
         )
-        scored_ids = set(result.scalars().all())
+        scores = {r.message_id: r for r in result.scalars().all()}
 
-    unscored_ids = [mid for mid in message_ids if mid not in scored_ids]
-    to_queue = [mid for mid in unscored_ids if (user_email, mid) not in _scanning_ids]
+    # Messages needing scan: not scored, or scored 0.0 with empty reasoning (degraded)
+    needs_scan_ids = [
+        mid for mid in message_ids
+        if mid not in scores
+        or (scores[mid].final_score == 0.0 and (not scores[mid].llm_reasoning or scores[mid].llm_reasoning in ('[]', 'null', '')))
+    ]
+    to_queue = [mid for mid in needs_scan_ids if (user_email, mid) not in _scanning_ids]
     if to_queue:
-        logger.info("Manual scan trigger: queuing %d messages for %s", len(to_queue), user_email)
+        logger.info("Manual scan trigger: queuing %d messages for %s (query=%s)", len(to_queue), user_email, q)
         background_tasks.add_task(_scan_unscored_batch, user_email, to_queue)
 
     return JSONResponse({
-        "status": "scanning" if (to_queue or unscored_ids) else "complete",
+        "status": "scanning" if (to_queue or needs_scan_ids) else "complete",
         "queued": len(to_queue),
-        "unscored_count": len(unscored_ids),
-        "already_scored": len(scored_ids),
+        "unscored_count": len(needs_scan_ids),
+        "already_scored": len(message_ids) - len(needs_scan_ids),
         "total": len(message_ids),
     })
 

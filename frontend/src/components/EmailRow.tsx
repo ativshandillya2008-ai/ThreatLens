@@ -108,7 +108,7 @@ export default function EmailRow({ email }: Props) {
               <Crosshair className="h-3 w-3 text-blue-600" />
               <span className="hidden sm:inline">Track Location</span>
             </button>
-            <ThreatBadge severity={email.threat.severity} score={email.threat.score} />
+            <ThreatBadge severity={email.threat.severity} score={email.threat.score} isSpam={isSpam} />
             <span className="text-[11px] text-slate-400 whitespace-nowrap font-mono">{relativeDate}</span>
           </div>
         </div>
