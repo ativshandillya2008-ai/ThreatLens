@@ -13,6 +13,8 @@ import secrets
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from urllib.parse import urlparse
+
 from ..config import get_settings
 from .oauth import (
     build_authorization_url,
@@ -21,7 +23,12 @@ from .oauth import (
     get_userinfo,
     revoke_token,
 )
-from .token_store import delete_tokens, store_tokens
+from .token_store import (
+    cache_access_token,
+    delete_tokens,
+    has_stored_refresh_token,
+    store_tokens,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -38,13 +45,30 @@ async def login(request: Request) -> RedirectResponse:
     code_verifier, code_challenge = generate_pkce_pair()
     state = secrets.token_urlsafe(32)
 
-    # Automatically detect redirect_uri based on current request host & scheme
+    # Detect redirect_uri dynamically based on current request host & scheme
     scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
     host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
-    if host and ("trycloudflare.com" in host or "127.0.0.1" in host or "localhost" in host):
+    if host:
         redirect_uri = f"{scheme}://{host}/auth/callback"
     else:
         redirect_uri = settings.OAUTH_REDIRECT_URI
+
+    # Remember frontend origin to redirect back seamlessly after Google authentication
+    referer = request.headers.get("referer")
+    origin = request.headers.get("origin")
+    frontend_target = None
+    if referer:
+        try:
+            parsed = urlparse(referer)
+            if parsed.scheme and parsed.netloc:
+                frontend_target = f"{parsed.scheme}://{parsed.netloc}"
+        except Exception:
+            pass
+    elif origin:
+        frontend_target = origin.rstrip("/")
+
+    if frontend_target:
+        request.session["oauth_frontend_origin"] = frontend_target
 
     # Store in server-side session (signed cookie)
     request.session["oauth_state"] = state
@@ -56,9 +80,15 @@ async def login(request: Request) -> RedirectResponse:
     return RedirectResponse(url=auth_url)
 
 
-def _frontend_redirect(path: str) -> RedirectResponse:
+def _frontend_redirect(path: str, request: Optional[Request] = None) -> RedirectResponse:
     settings = get_settings()
-    base = settings.FRONTEND_URL.rstrip("/") if settings.FRONTEND_URL else ""
+    base = ""
+    if request:
+        origin = request.session.pop("oauth_frontend_origin", None)
+        if origin:
+            base = origin.rstrip("/")
+    if not base and settings.FRONTEND_URL:
+        base = settings.FRONTEND_URL.rstrip("/")
     return RedirectResponse(url=f"{base}{path}")
 
 
@@ -75,7 +105,9 @@ async def callback(request: Request) -> RedirectResponse:
 
     if error:
         logger.warning("OAuth error from Google: %s", error)
-        return _frontend_redirect("/?error=oauth_denied")
+        if error == "access_denied":
+            return _frontend_redirect("/?error=access_denied", request)
+        return _frontend_redirect("/?error=oauth_denied", request)
 
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state parameter")
@@ -99,36 +131,46 @@ async def callback(request: Request) -> RedirectResponse:
         token_response = await exchange_code_for_tokens(code, code_verifier, redirect_uri=redirect_uri)
     except Exception as exc:
         logger.error("Token exchange failed: %s", exc)
-        return _frontend_redirect("/?error=token_exchange_failed")
+        return _frontend_redirect("/?error=token_exchange_failed", request)
 
     access_token = token_response.get("access_token")
     refresh_token = token_response.get("refresh_token")
     expires_in = token_response.get("expires_in", 3600)
     scope = token_response.get("scope")
 
-    if not access_token or not refresh_token:
-        logger.error("Token response missing access_token or refresh_token")
-        return _frontend_redirect("/?error=incomplete_token_response")
+    if not access_token:
+        logger.error("Token response missing access_token")
+        return _frontend_redirect("/?error=incomplete_token_response", request)
 
-    # Fetch user profile
+    # Fetch user profile using access token
     try:
         userinfo = await get_userinfo(access_token)
     except Exception as exc:
         logger.error("Failed to fetch userinfo: %s", exc)
-        return _frontend_redirect("/?error=userinfo_failed")
+        return _frontend_redirect("/?error=userinfo_failed", request)
 
     user_email = userinfo.get("email")
     if not user_email:
-        return _frontend_redirect("/?error=no_email")
+        return _frontend_redirect("/?error=no_email", request)
 
-    # Store tokens securely
-    await store_tokens(
-        user_email=user_email,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_in=expires_in,
-        scope=scope,
-    )
+    # Handle refresh token: Google may omit refresh_token if the user has already consented
+    if not refresh_token:
+        has_existing = await has_stored_refresh_token(user_email)
+        if has_existing:
+            logger.info("Google omitted refresh_token on re-auth, using existing token for %s", user_email)
+            cache_access_token(user_email, access_token, expires_in)
+        else:
+            logger.error("No refresh_token returned by Google and none found in DB for %s", user_email)
+            return _frontend_redirect("/?error=incomplete_token_response", request)
+    else:
+        # Store tokens securely
+        await store_tokens(
+            user_email=user_email,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_in=expires_in,
+            scope=scope,
+        )
 
     # Persist user info in session
     request.session["user_email"] = user_email
@@ -136,7 +178,8 @@ async def callback(request: Request) -> RedirectResponse:
     request.session["user_picture"] = userinfo.get("picture", "")
 
     logger.info("OAuth flow complete for %s", user_email)
-    return _frontend_redirect("/inbox")
+    return _frontend_redirect("/inbox", request)
+
 
 
 @router.post("/logout")

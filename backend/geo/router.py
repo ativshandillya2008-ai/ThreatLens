@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,16 @@ from ..pipeline.geoip import lookup_ip_dossier, format_cardinal_coords
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _require_auth(request: Request) -> str:
+    user_email = request.session.get("user_email")
+    if not user_email:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please sign in with Google to access ThreatLens telemetry.",
+        )
+    return user_email
 
 
 class IPLookupRequest(BaseModel):
@@ -26,8 +36,9 @@ class ReverseGeocodeRequest(BaseModel):
 
 
 @router.post("/lookup")
-async def lookup_ip_endpoint(req: IPLookupRequest) -> JSONResponse:
+async def lookup_ip_endpoint(req: IPLookupRequest, request: Request) -> JSONResponse:
     """Geolocate and perform 5-tier threat intelligence resolution for an IP."""
+    _require_auth(request)
     target_ip = req.ip.strip()
     if not target_ip:
         raise HTTPException(status_code=400, detail="IP address cannot be empty")
@@ -74,8 +85,9 @@ async def lookup_ip_endpoint(req: IPLookupRequest) -> JSONResponse:
 
 
 @router.post("/reverse")
-async def reverse_geocode_endpoint(req: ReverseGeocodeRequest) -> JSONResponse:
+async def reverse_geocode_endpoint(req: ReverseGeocodeRequest, request: Request) -> JSONResponse:
     """Reverse-geocode latitude and longitude into physical address using BigDataCloud and OSM Nominatim."""
+    _require_auth(request)
     # 1. Primary: BigDataCloud Reverse Geocode Client (Free, ultra-low latency <100ms, accurate city/state/country)
     try:
         bdc_url = f"https://api.bigdatacloud.net/data/reverse-geocode-client?latitude={req.lat}&longitude={req.lon}&localityLanguage=en"

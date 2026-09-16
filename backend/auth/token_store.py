@@ -72,6 +72,23 @@ async def store_tokens(
     logger.info("Stored tokens for %s", user_email)
 
 
+async def has_stored_refresh_token(user_email: str) -> bool:
+    """Check if a stored refresh token exists in DB for this user."""
+    factory = get_session_factory()
+    async with factory() as session:
+        record = await session.get(StoredToken, user_email)
+        return record is not None and bool(record.encrypted_refresh_token)
+
+
+def cache_access_token(user_email: str, access_token: str, expires_in: int) -> None:
+    """Cache the active access token in memory."""
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=expires_in - 60)
+    _access_token_cache[user_email] = (access_token, expires_at)
+
+
+
 async def get_valid_access_token(user_email: str) -> str:
     """Return a valid access token, refreshing if expired.
 

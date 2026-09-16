@@ -136,6 +136,7 @@ FastAPI :8088
 | Pub/Sub replay attacks | OIDC JWT verified: **both signature AND `aud` claim** must match |
 | GeoIP false positives | ESP CIDR allowlist (SendGrid, SES, Gmail, M365, etc.); mismatch weight reduced to 0.15 |
 | PII accumulation in headers | 2-phase retention: headers nulled at 30d, records deleted at 90d |
+| Guest / unauthenticated access | Strictly prohibited; all routes & APIs require active Google OAuth session (`401 Unauthorized`); no guest mode |
 
 ---
 

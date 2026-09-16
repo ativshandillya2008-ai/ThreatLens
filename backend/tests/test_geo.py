@@ -81,10 +81,20 @@ async def test_curated_threat_infrastructure_resolution():
 
 
 @pytest.mark.asyncio
-async def test_geo_lookup_endpoint():
-    """Test POST /api/geo/lookup endpoint."""
+async def test_geo_lookup_endpoint(monkeypatch):
+    """Test POST /api/geo/lookup endpoint requires authentication (no guest access)."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Unauthenticated request must be rejected with 401
+        resp_unauth = await client.post("/api/geo/lookup", json={"ip": "8.8.8.8"})
+        assert resp_unauth.status_code == 401
+        assert "Authentication required" in resp_unauth.json().get("detail", "")
+
+        # 2. Authenticated request succeeds
+        monkeypatch.setattr("starlette.requests.Request.session", {
+            "user_email": "testsecurity@gmail.com",
+        })
+
         # Public IP lookup
         resp = await client.post("/api/geo/lookup", json={"ip": "8.8.8.8"})
         assert resp.status_code == 200
@@ -106,10 +116,20 @@ async def test_geo_lookup_endpoint():
 
 
 @pytest.mark.asyncio
-async def test_geo_reverse_endpoint():
-    """Test POST /api/geo/reverse endpoint for GPS coordinates."""
+async def test_geo_reverse_endpoint(monkeypatch):
+    """Test POST /api/geo/reverse endpoint requires authentication (no guest access)."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Unauthenticated request must be rejected with 401
+        resp_unauth = await client.post("/api/geo/reverse", json={"lat": 13.3208, "lon": 77.0923})
+        assert resp_unauth.status_code == 401
+        assert "Authentication required" in resp_unauth.json().get("detail", "")
+
+        # 2. Authenticated request succeeds
+        monkeypatch.setattr("starlette.requests.Request.session", {
+            "user_email": "testsecurity@gmail.com",
+        })
+
         resp = await client.post("/api/geo/reverse", json={"lat": 13.3208, "lon": 77.0923})
         assert resp.status_code == 200
         data = resp.json()

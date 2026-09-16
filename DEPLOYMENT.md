@@ -36,16 +36,18 @@ ThreatLens is designed as a unified full-stack application:
 
 Because ThreatLens uses Google OAuth 2.0 to authenticate users and inspect emails, **Google requires HTTPS and explicit authorized URLs for any public deployment**.
 
-### 1. Configure the OAuth Consent Screen
+### 1. Configure the OAuth Consent Screen (Universal Public Access)
 1. Go to [Google Cloud Console → APIs & Services → OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent).
-2. Choose **External** (or **Internal** if using Google Workspace within an organization).
+2. Choose **External** (this allows anyone with a Google account to use the website).
 3. Fill in:
    - **App name**: `ThreatLens`
    - **User support email**: Your email
    - **Developer contact information**: Your email
-4. **Publishing Status**:
-   - **While "In Testing"**: Only users explicitly added to the **Test Users** list can sign in! Add the Gmail addresses of anyone who needs to access the deployed instance.
-   - **To allow anyone on the internet**: Click **Publish App**. Google will display an "unverified app" consent screen when users log in. Users simply click **"Advanced" → "Go to ThreatLens (unsafe)"** to grant permission.
+4. **Publishing Status ("Anyone can use my website")**:
+   - **While "In Testing"**: Only users explicitly listed under **Test Users** can sign in! If any other person tries to log in, Google returns Error 403 `access_denied`.
+   - **To allow ANY user on the internet to sign in**: Click **Publish App** (status changes to **In Production**).
+   - Once published, anyone with a Google account can sign in. When users encounter Google's standard "Google hasn't verified this app" warning, they simply click **"Advanced" → "Go to ThreatLens (unsafe)"** and grant access.
+   - **No Guest Mode**: ThreatLens strictly operates on authenticated live mailboxes. Users must sign in with Google to use the application.
 
 ### 2. Configure Authorized Redirect URIs
 1. Go to [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials).

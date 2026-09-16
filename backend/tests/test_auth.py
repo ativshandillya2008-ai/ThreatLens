@@ -123,3 +123,78 @@ async def test_login_endpoint_redirects_to_google():
     assert "accounts.google.com" in response.headers["location"]
     assert "oauth_state" in request.session
     assert "oauth_code_verifier" in request.session
+
+
+@pytest.mark.asyncio
+async def test_login_dynamic_host_redirect_uri():
+    """GET /auth/login must dynamically compute redirect_uri for any host."""
+    from backend.auth.router import login
+
+    request = MagicMock()
+    request.session = {}
+    request.headers = {
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "threatlens.customdomain.org",
+        "referer": "https://threatlens.customdomain.org/login",
+    }
+    request.url = MagicMock(scheme="https", netloc="threatlens.customdomain.org")
+
+    response = await login(request)
+    assert response.status_code == 307
+    assert request.session["oauth_redirect_uri"] == "https://threatlens.customdomain.org/auth/callback"
+    assert request.session["oauth_frontend_origin"] == "https://threatlens.customdomain.org"
+    assert "redirect_uri=https%3A%2F%2Fthreatlens.customdomain.org%2Fauth%2Fcallback" in response.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_callback_reauth_uses_existing_refresh_token():
+    """When Google omits refresh_token on re-auth, existing DB refresh token is preserved."""
+    from backend.auth.router import callback
+
+    request = MagicMock()
+    request.query_params = {"code": "auth-code-123", "state": "valid-state"}
+    request.session = {
+        "oauth_state": "valid-state",
+        "oauth_code_verifier": "verifier-xyz",
+        "oauth_redirect_uri": "https://threatlens.ai/auth/callback",
+    }
+
+    token_resp = {
+        "access_token": "fresh-access-token-999",
+        "expires_in": 3600,
+        "scope": "openid email",
+        # Notice: NO refresh_token returned by Google
+    }
+
+    userinfo_resp = {
+        "email": "returninguser@gmail.com",
+        "name": "Returning User",
+        "picture": "https://example.com/avatar.jpg",
+    }
+
+    with patch("backend.auth.router.exchange_code_for_tokens", AsyncMock(return_value=token_resp)), \
+         patch("backend.auth.router.get_userinfo", AsyncMock(return_value=userinfo_resp)), \
+         patch("backend.auth.router.has_stored_refresh_token", AsyncMock(return_value=True)), \
+         patch("backend.auth.router.cache_access_token") as mock_cache:
+
+        response = await callback(request)
+
+        assert response.status_code == 307
+        assert response.headers["location"] == "/inbox"
+        assert request.session["user_email"] == "returninguser@gmail.com"
+        mock_cache.assert_called_once_with("returninguser@gmail.com", "fresh-access-token-999", 3600)
+
+
+@pytest.mark.asyncio
+async def test_callback_access_denied_redirect():
+    """Callback with error=access_denied redirects to /?error=access_denied."""
+    from backend.auth.router import callback
+
+    request = MagicMock()
+    request.query_params = {"error": "access_denied"}
+    request.session = {}
+
+    response = await callback(request)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/?error=access_denied"
+

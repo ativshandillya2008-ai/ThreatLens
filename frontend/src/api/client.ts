@@ -267,6 +267,13 @@ async function apiFetch<T>(
   });
 
   if (!response.ok) {
+    if (response.status === 401 && path !== '/auth/me') {
+      invalidateCsrfToken();
+      // If session expired or unauthorized on protected action, bounce to login
+      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+        window.location.href = '/?error=session_expired';
+      }
+    }
     // If CSRF token is stale, invalidate and let the caller retry
     if (response.status === 403) {
       invalidateCsrfToken();
