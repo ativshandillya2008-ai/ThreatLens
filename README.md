@@ -7,6 +7,32 @@ AI-powered email threat detection with real-time Gmail scanning, SPF/DKIM/DMARC 
 
 ---
 
+## Screenshots
+
+### 📬 Primary Inbox Threat Feed & Live Metrics
+Real-time mailbox scanning, high/medium/safe threat indicators, and live security telemetry.
+
+![Primary Inbox Dashboard](docs/screenshots/inbox-dashboard.png)
+
+### 🔬 Deep Forensic Analysis & Origin Geolocation
+Per-email threat score breakdown with SPF/DKIM/DMARC validation, sender hop tracking, and interactive radar pinpointing.
+
+![Forensic Report & Email Detail](docs/screenshots/email-forensic-report.png)
+
+### ⚠️ Spam & Quarantine Vault
+Automated isolation of high and suspicious threat emails with full forensic evidence preserved.
+
+![Spam and Quarantine Vault](docs/screenshots/spam-quarantine-vault.png)
+
+### 🌍 Global Threat Radar & Hop Telemetry
+Interactive map plotting worldwide origin and relay IPs color-coded by threat tier.
+
+![Global Threat Radar Map](docs/screenshots/threat-map.png)
+
+![Threat Map Node Telemetry](docs/screenshots/threat-map-closeup.png)
+
+---
+
 ## Quick Start (Local Dev)
 
 ### Prerequisites
