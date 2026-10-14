@@ -31,6 +31,16 @@ Interactive map plotting worldwide origin and relay IPs color-coded by threat ti
 
 ![Threat Map Node Telemetry](docs/screenshots/threat-map-closeup.png)
 
+### 🤖 Conversational AI Threat Intelligence Agent
+Interactive assistant that scans mailboxes, summarizes unread messages, triages threats, and executes search tools autonomously.
+
+![AI Threat Intelligence Agent](docs/screenshots/ai-agent-chat.png)
+
+### 📑 Official Forensic Threat Assessment & Audit Dossier
+Comprehensive security dossier with multi-vector threat risk matrix, RFC authentication audits, and printable forensic evidence.
+
+![Forensic Threat Assessment & Audit Dossier](docs/screenshots/forensic-audit-dossier.png)
+
 ---
 
 ## Quick Start (Local Dev)
